@@ -1,1 +1,1 @@
-FROM ghcr.io/mhsanaei/3x-ui:v2.9.0
+FROM ghcr.io/mhsanaei/3x-ui:v2.5.0
