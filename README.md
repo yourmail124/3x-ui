@@ -1,1 +1,1 @@
-# railway-3xui
+# 3x-ui
