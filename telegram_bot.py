@@ -330,11 +330,14 @@ def _format_sub_detail(sid: str, s: dict) -> str:
     cnt = len(s.get("link_ids", []))
     pw = "🔒 دارد" if s.get("password_hash") else "بدون رمز"
     desc = s.get("desc") or "—"
+    limit = s.get("limit_bytes", 0)
+    limit_txt = "نامحدود" if not limit else fmt_bytes(limit)
     return (
         f"🗂 <b>{s.get('name','?')}</b>\n"
         f"توضیحات: {desc}\n"
         f"تعداد کانفیگ‌های داخل گروه: {cnt}\n"
-        f"رمز عبور: {pw}\n\n"
+        f"رمز عبور: {pw}\n"
+        f"حجم مشترک گروه: {limit_txt}\n\n"
         f"🔗 لینک ساب حرفه‌ای این گروه:\n<code>{_group_public_url(s)}</code>"
     )
 
