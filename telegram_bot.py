@@ -526,7 +526,7 @@ async def _handle_callback(cb: dict):
 
     if data == "menu":
         _pending.pop(chat_id, None)
-        await _edit(chat_id, message_id, "منوی مدیریت X4G:", _main_menu_kb())
+        await _edit(chat_id, message_id, "منوی مدیریت:", _main_menu_kb())
         return
 
     if data.startswith("list:"):
