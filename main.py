@@ -334,6 +334,22 @@ def is_link_allowed(link: dict | None) -> bool:
         return False
     if is_link_expired(link):
         return False
+
+    # اگر کانفیگ داخل گروه باشد → حجم مشترک گروه را چک کن
+    sub_id = link.get("sub_id")
+    if sub_id and sub_id in SUBS:
+        group = SUBS[sub_id]
+        group_limit = int(group.get("limit_bytes", 0) or 0)
+        if group_limit > 0:
+            total_used = 0
+            for lid in group.get("link_ids", []):
+                if lid in LINKS:
+                    total_used += LINKS[lid].get("used_bytes", 0)
+            if total_used >= group_limit:
+                return False
+        return True
+
+    # حالت عادی (کانفیگ تکی)
     lb = link.get("limit_bytes", 0)
     if lb > 0 and link.get("used_bytes", 0) >= lb:
         return False
@@ -451,6 +467,12 @@ async def create_sub(request: Request, _=Depends(require_auth)):
     name = (body.get("name") or "گروه جدید").strip()[:60]
     desc = (body.get("desc") or "").strip()[:200]
     password = (body.get("password") or "").strip()
+
+    # حجم مشترک گروه
+    lv = float(body.get("limit_value") or 0)
+    lu = body.get("limit_unit") or "GB"
+    limit_bytes = 0 if lv <= 0 else parse_size_to_bytes(lv, lu)
+
     sub_id = generate_uuid()
     uuid_key = secrets.token_urlsafe(16)
     async with SUBS_LOCK:
@@ -461,6 +483,7 @@ async def create_sub(request: Request, _=Depends(require_auth)):
             "uuid_key": uuid_key,
             "created_at": datetime.now().isoformat(),
             "link_ids": [],
+            "limit_bytes": limit_bytes,
         }
     asyncio.create_task(save_state())
     log_activity("sub", f"گروه «{name}» ساخته شد", "ok")
@@ -515,6 +538,10 @@ async def update_sub(sub_id: str, request: Request, _=Depends(require_auth)):
             s["password_hash"] = hash_password(pw) if pw else None
         if "link_ids" in body:
             s["link_ids"] = list(body["link_ids"])
+        if "limit_value" in body:
+            lv = float(body.get("limit_value") or 0)
+            lu = body.get("limit_unit") or "GB"
+            s["limit_bytes"] = 0 if lv <= 0 else parse_size_to_bytes(lv, lu)
     asyncio.create_task(save_state())
     return {"ok": True}
 
@@ -794,7 +821,7 @@ async def set_link_active(uid: str, active: bool) -> dict | None:
     return LINKS[uid]
 
 # ── Sub-group helpers (reusable — هم API وب هم ربات تلگرام از همین‌ها استفاده می‌کنن) ──
-async def create_sub_group(name: str = "گروه جدید", desc: str = "", password: str = "") -> tuple[str, dict]:
+async def create_sub_group(name: str = "گروه جدید", desc: str = "", password: str = "", limit_bytes: int = 0) -> tuple[str, dict]:
     name = (name or "گروه جدید").strip()[:60]
     desc = (desc or "").strip()[:200]
     password = (password or "").strip()
@@ -808,6 +835,11 @@ async def create_sub_group(name: str = "گروه جدید", desc: str = "", pass
             "uuid_key": uuid_key,
             "created_at": datetime.now().isoformat(),
             "link_ids": [],
+            "limit_bytes": max(0, limit_bytes),
+        }
+    asyncio.create_task(save_state())
+    log_activity("sub", f"گروه «{name}» ساخته شد", "ok")
+    return sub_id, SUBS[sub_id]
         }
     asyncio.create_task(save_state())
     log_activity("sub", f"گروه «{name}» ساخته شد", "ok")
