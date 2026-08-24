@@ -1261,6 +1261,38 @@ a{color:inherit;text-decoration:none}
       </div>
     </div>
   </div>
+  <div class="srv-panel" style="margin-top:13px">
+    <div class="srv-hero">
+      <div class="srv-hero-icon"><i class="ti ti-database-export"></i></div>
+      <div class="srv-hero-text">
+        <div class="srv-hero-domain">بکاپ و بازگردانی</div>
+        <div class="srv-hero-sub">تهیه نسخه پشتیبان از کانفیگ‌ها، گروه‌های ساب و تنظیمات یا بازگردانی از فایل بکاپ</div>
+      </div>
+    </div>
+    <div style="padding:20px 24px 24px;display:flex;flex-direction:column;gap:14px">
+      <div class="srv-tile" style="align-items:flex-start;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:11px;width:100%">
+          <div class="srv-tile-icon"><i class="ti ti-download"></i></div>
+          <div class="srv-tile-text">
+            <div class="srv-tile-label">دانلود فایل بکاپ</div>
+            <div class="srv-tile-val">شامل تمام کانفیگ‌ها، گروه‌های ساب و تنظیمات پنل به‌صورت JSON</div>
+          </div>
+        </div>
+        <button class="btn btn-p" onclick="downloadBackup()" style="width:100%;justify-content:center;padding:10px"><i class="ti ti-file-download"></i> دانلود بکاپ</button>
+      </div>
+      <div class="srv-tile" style="align-items:flex-start;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:11px;width:100%">
+          <div class="srv-tile-icon"><i class="ti ti-upload"></i></div>
+          <div class="srv-tile-text">
+            <div class="srv-tile-label">بازگردانی از فایل بکاپ</div>
+            <div class="srv-tile-val" style="color:var(--red-t)"><i class="ti ti-alert-triangle"></i> با تایید، تمام داده‌های فعلی با محتوای فایل جایگزین می‌شود</div>
+          </div>
+        </div>
+        <input type="file" id="restore-file" accept="application/json,.json" style="display:none" onchange="handleRestoreFile(this)">
+        <button class="btn btn-g" id="restore-btn" onclick="pickRestoreFile()" style="width:100%;justify-content:center;padding:10px"><i class="ti ti-upload"></i> انتخاب فایل بکاپ</button>
+      </div>
+    </div>
+  </div>
 </section>
 <section class="pg" id="pg-support">
   <div class="topbar"><div><div class="tb-title"><i class="ti ti-headset"></i> پشتیبانی</div></div></div>
@@ -1835,6 +1867,44 @@ async function changePw(){
     toast('رمز تغییر کرد ✓','ok');
     ['cp-cur','cp-new','cp-cf'].forEach(id=>document.getElementById(id).value='');
   }catch(e){toast('✗ '+e.message,'err')}
+}
+async function downloadBackup(){
+  try{
+    const r=await authF('/api/backup');
+    if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||'خطا در تهیه بکاپ');}
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const ts=new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    const a=document.createElement('a');
+    a.href=url;a.download='panel-backup-'+ts+'.json';
+    document.body.appendChild(a);a.click();a.remove();
+    URL.revokeObjectURL(url);
+    toast('فایل بکاپ دانلود شد ✓','ok');
+  }catch(e){toast('✗ '+(e.message||'خطا در تهیه بکاپ'),'err')}
+}
+function pickRestoreFile(){document.getElementById('restore-file').click();}
+async function handleRestoreFile(input){
+  const file=input.files[0];
+  if(!file)return;
+  if(!confirm('با بازگردانی این فایل، تمام کانفیگ‌ها، گروه‌ها و تنظیمات فعلی پاک و با محتوای فایل جایگزین می‌شوند. آیا مطمئن هستید؟')){input.value='';return;}
+  const btn=document.getElementById('restore-btn');
+  const origHtml=btn.innerHTML;
+  try{
+    const text=await file.text();
+    let data;
+    try{data=JSON.parse(text);}catch(e){throw new Error('فایل انتخاب‌شده یک JSON معتبر نیست');}
+    btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i> در حال بازگردانی...';
+    const r=await authF('/api/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(d.detail||'خطا در بازگردانی بکاپ');
+    toast('بازگردانی با موفقیت انجام شد ✓','ok');
+    setTimeout(()=>location.reload(),1200);
+  }catch(e){
+    toast('✗ '+(e.message||'خطا در بازگردانی'),'err');
+  }finally{
+    input.value='';
+    btn.disabled=false;btn.innerHTML=origHtml;
+  }
 }
 function togglePwField(id,btn){
   const inp=document.getElementById(id);
