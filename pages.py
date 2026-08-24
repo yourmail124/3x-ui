@@ -2057,6 +2057,10 @@ html,body{{min-height:100%;background:var(--bg);font-family:var(--serif);color:v
 .cfg-status{{display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;white-space:nowrap}}
 .cfg-status.ok{{background:var(--green-bg);color:var(--green-t)}}
 .cfg-status.no{{background:var(--red-bg);color:var(--red-t)}}
+.cfg-usage{{margin-bottom:4px}}
+.ubar{{height:6px;border-radius:4px;background:rgba(96,148,246,0.1);overflow:hidden;margin-bottom:5px}}
+.ubar-f{{height:100%;border-radius:4px;transition:width .5s ease}}
+.utxt{{font-size:10px;color:var(--t3);display:flex;justify-content:space-between}}
 
 /* خط جداکننده‌ی بلیطی با دندانه‌های گرد، شبیه پاره‌خط بُرد بلیط */
 .cfg-tear{{position:relative;height:0;border-top:1.5px dashed var(--card-b);margin:0 19px}}
@@ -2311,7 +2315,7 @@ function renderContent(d){{
       <div class="stat-card">
         <div class="stat-label">کل مصرف</div>
         <div class="stat-val" style="font-size:17px;margin-top:3px">${{esc(d.total_used_fmt)}}</div>
-        <div class="stat-sub">سقف گروه: ${{esc(d.limit_fmt || '∞')}}</div>
+        <div class="stat-sub">همه کانفیگ‌ها</div>
       </div>
     </div>
 
@@ -2333,6 +2337,10 @@ function renderContent(d){{
                   </div>
                 </div>
                 <span class="cfg-status ${{l.active ? 'ok' : 'no'}}">${{l.active ? '<i class="ti ti-circle-check"></i> فعال' : '<i class="ti ti-circle-x"></i> غیرفعال'}}</span>
+              </div>
+              <div class="cfg-usage">
+                <div class="ubar"><div class="ubar-f" style="width:${{pct}}%;background:${{bc}}"></div></div>
+                <div class="utxt"><span>${{esc(l.used_fmt)}} مصرف شده</span><span>سهمیه: ${{lim}}</span></div>
               </div>
             </div>
             <div class="cfg-tear"></div>
