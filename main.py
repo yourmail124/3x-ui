@@ -629,6 +629,60 @@ async def api_change_password(request: Request, token=Depends(require_auth)):
     log_activity("auth", "رمز عبور پنل تغییر کرد", "ok")
     return {"ok": True}
 
+# ── Backup / Restore ──────────────────────────────────────────────────────────
+@app.get("/api/backup")
+async def api_backup(_=Depends(require_auth)):
+    async with LINKS_LOCK, SUBS_LOCK:
+        data = {
+            "version": 1,
+            "links": dict(LINKS),
+            "subs": dict(SUBS),
+            "password_hash": AUTH["password_hash"],
+            "saved_at": datetime.now().isoformat(),
+        }
+    payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+    filename = f"panel-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    log_activity("backup", "فایل بکاپ دانلود شد", "info")
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+@app.post("/api/restore")
+async def api_restore(request: Request, token=Depends(require_auth)):
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="فایل ارسالی JSON معتبر نیست")
+
+    if not isinstance(data, dict) or "links" not in data or "subs" not in data:
+        raise HTTPException(status_code=400, detail="ساختار فایل بکاپ نامعتبر است")
+
+    new_links = data.get("links") or {}
+    new_subs = data.get("subs") or {}
+    if not isinstance(new_links, dict) or not isinstance(new_subs, dict):
+        raise HTTPException(status_code=400, detail="ساختار فایل بکاپ نامعتبر است")
+
+    async with LINKS_LOCK:
+        LINKS.clear()
+        LINKS.update(new_links)
+    async with SUBS_LOCK:
+        SUBS.clear()
+        SUBS.update(new_subs)
+
+    new_pw_hash = data.get("password_hash")
+    if new_pw_hash and new_pw_hash != AUTH["password_hash"]:
+        AUTH["password_hash"] = new_pw_hash
+        # چون رمز عوض شده، بقیه‌ی نشست‌ها باطل می‌شن؛ فقط نشست فعلی (که دارد ری‌استور می‌کند) باقی می‌ماند
+        async with SESSIONS_LOCK:
+            SESSIONS.clear()
+            SESSIONS[token] = time.time() + SESSION_TTL
+
+    await save_state()
+    log_activity("backup", f"بازگردانی از فایل بکاپ انجام شد ({len(LINKS)} کانفیگ، {len(SUBS)} گروه)", "ok")
+    return {"ok": True, "links": len(LINKS), "subs": len(SUBS)}
+
 # ── Stats ─────────────────────────────────────────────────────────────────────
 @app.get("/stats")
 async def get_stats(_=Depends(require_auth)):
