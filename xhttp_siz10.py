@@ -270,8 +270,17 @@ async def _reaper():
         await asyncio.sleep(REAPER_INTERVAL)
         now = time.time()
         async with XHTTP_LOCK:
+            # قبلاً فقط سشن‌هایی که هنوز TCP وصل نکرده بودن (tcp_open=False) ریپ می‌شدن.
+            # مشکل: وقتی TCP باز می‌شه (tcp_open=True) ولی کلاینت قطع می‌شه (نه آپلود
+            # جدیدی می‌فرسته، نه دانلینک رو می‌خونه) و سمت مقصد هم کانکشن رو نمی‌بنده،
+            # last_seen دیگه آپدیت نمی‌شه ولی چون tcp_open=True بود هیچ‌وقت ریپ نمی‌شد؛
+            # سشن و entry داخل connections برای همیشه می‌موند و در آمار «اتصالات زنده»
+            # (هم صفحه‌ی اتصالات، هم لینک ساب پابلیک، هم بج روی کارت کانفیگ) به‌عنوان
+            # کاربر آنلاین شمرده می‌شد در حالی که کلاینت واقعاً رفته بود.
+            # حالا هر سشن idle (فارغ از وضعیت tcp_open) بعد از SESSION_IDLE_TIMEOUT ریپ می‌شه؛
+            # سشن‌های واقعاً فعال چون هر چانک آپلینک/دانلینک last_seen رو تازه می‌کنن، دست نمی‌خورن.
             stale = [sid for sid, s in xhttp_sessions.items()
-                     if now - s["last_seen"] > SESSION_IDLE_TIMEOUT and not s.get("tcp_open")]
+                     if now - s["last_seen"] > SESSION_IDLE_TIMEOUT]
         for sid in stale:
             await _teardown(sid)
 

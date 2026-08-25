@@ -595,6 +595,8 @@ a{color:inherit;text-decoration:none}
 .cfg-status-dot{width:9px;height:9px;border-radius:50%;background:var(--green);flex-shrink:0;box-shadow:0 0 0 3px var(--green-bg)}
 .cfg-card.is-off .cfg-status-dot{background:var(--red);box-shadow:0 0 0 3px var(--red-bg)}
 .cfg-card.is-exp .cfg-status-dot{background:var(--amber);box-shadow:0 0 0 3px var(--amber-bg)}
+.conn-live-badge{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:600;padding:3px 8px;border-radius:20px;background:var(--red-bg);color:var(--red-t);flex-shrink:0;white-space:nowrap;margin-inline-start:6px}
+.conn-live-badge.is-live{background:var(--green-bg);color:var(--green-t)}
 .cfg-identity{display:flex;flex-direction:column;gap:3px;min-width:150px;flex-shrink:0}
 .cfg-label{font-size:13.5px;font-weight:700;color:var(--t1);display:flex;align-items:center;gap:7px}
 .cfg-sub-meta{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--t3)}
@@ -889,7 +891,10 @@ a{color:inherit;text-decoration:none}
 <section class="pg" id="pg-links">
   <div class="topbar">
     <div><div class="tb-title"><i class="ti ti-link-plus"></i> کانفیگ‌ها</div><div class="tb-sub">ساخت و مدیریت کانفیگ با سهمیه، انقضا و گروه‌بندی</div></div>
-    <div class="tb-right"><span class="badge bg-blue" id="links-pg-cnt">۰ کانفیگ</span></div>
+    <div class="tb-right">
+      <span class="badge bg-green" id="links-live-badge"><span class="dot dr"></span> — آنلاین</span>
+      <span class="badge bg-blue" id="links-pg-cnt">۰ کانفیگ</span>
+    </div>
   </div>
   <div class="create-panel">
     <div class="cp-head">
@@ -1475,9 +1480,13 @@ async function loadActivity(){
 let allSubsList=[],allLinksList=[];
 async function loadLinks(){
   try{
-    const [lr,sr]=await Promise.all([authF('/api/links'),authF('/api/subs')]);
+    const [lr,sr,cr]=await Promise.all([authF('/api/links'),authF('/api/subs'),authF('/api/connections')]);
     const {links=[]}=await lr.json();
     const {subs=[]}=await sr.json();
+    const connData=await cr.json().catch(()=>({count:0}));
+    const liveCount=connData.count||0;
+    const liveBadge=document.getElementById('links-live-badge');
+    if(liveBadge)liveBadge.innerHTML='<span class="dot '+(liveCount>0?'dg pulse':'dr')+'"></span> '+toFa(liveCount)+' نفر آنلاین';
     allSubsList=subs;allLinksList=links;
     const nlSub=document.getElementById('nl-sub');
     nlSub.innerHTML='<option value="">— بدون گروه —</option>'+subs.map(s=>`<option value="${esc(s.sub_id)}">${esc(s.name)}</option>`).join('');
@@ -1498,7 +1507,11 @@ async function loadLinks(){
     <div class="cfg-row">
       <span class="cfg-status-dot ${allowed?'pulse':''}"></span>
       <div class="cfg-identity">
-        <div class="cfg-label">${esc(l.label)}</div>
+        <div class="cfg-label">${esc(l.label)}
+          <span class="conn-live-badge ${l.connected_ips>0?'is-live':''}" title="${l.connected_ips>0?toFa(l.connected_ips)+' نفر همین الان به این کانفیگ متصل هستند':'در حال حاضر کسی به این کانفیگ متصل نیست'}">
+            <span class="dot ${l.connected_ips>0?'dg pulse':'dr'}"></span>${l.connected_ips>0?toFa(l.connected_ips)+' متصل':'آفلاین'}
+          </span>
+        </div>
         <div class="cfg-sub-meta">
           <span class="cfg-uuid-mini" onclick="navigator.clipboard.writeText('${l.uuid}').then(()=>toast('UUID کپی شد','ok'))" title="${l.uuid}"><i class="ti ti-fingerprint"></i> ${l.uuid.slice(0,10)}…</span>
           <span>${new Date(l.created_at).toLocaleDateString('fa-IR')}</span>
