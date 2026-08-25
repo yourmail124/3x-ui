@@ -327,6 +327,13 @@ def is_link_expired(link: dict) -> bool:
     except Exception:
         return False
 
+def sub_group_used_bytes(sub_id: str) -> int:
+    """مجموع حجم مصرفی همه‌ی کانفیگ‌های داخل یک گروه ساب (برای کوتای مشترک گروه)."""
+    sub = SUBS.get(sub_id)
+    if not sub:
+        return 0
+    return sum(LINKS[lid].get("used_bytes", 0) for lid in sub.get("link_ids", []) if lid in LINKS)
+
 def is_link_allowed(link: dict | None) -> bool:
     if link is None:
         return False
@@ -337,6 +344,15 @@ def is_link_allowed(link: dict | None) -> bool:
     lb = link.get("limit_bytes", 0)
     if lb > 0 and link.get("used_bytes", 0) >= lb:
         return False
+    # کوتای مشترک گروه: اگه کانفیگ عضو یه گروه ساب با حجم مشخص‌شده باشه، مجموع مصرف
+    # همه‌ی کانفیگ‌های اون گروه (نه فقط همین یکی) با سقف گروه مقایسه می‌شه.
+    sub_id = link.get("sub_id")
+    if sub_id:
+        sub = SUBS.get(sub_id)
+        if sub:
+            qb = sub.get("quota_bytes", 0)
+            if qb > 0 and sub_group_used_bytes(sub_id) >= qb:
+                return False
     return True
 
 def fmt_bytes(b: int) -> str:
@@ -451,6 +467,9 @@ async def create_sub(request: Request, _=Depends(require_auth)):
     name = (body.get("name") or "گروه جدید").strip()[:60]
     desc = (body.get("desc") or "").strip()[:200]
     password = (body.get("password") or "").strip()
+    qv = float(body.get("quota_value") or 0)
+    qu = body.get("quota_unit") or "GB"
+    quota_bytes = 0 if qv <= 0 else parse_size_to_bytes(qv, qu)
     sub_id = generate_uuid()
     uuid_key = secrets.token_urlsafe(16)
     async with SUBS_LOCK:
@@ -461,6 +480,7 @@ async def create_sub(request: Request, _=Depends(require_auth)):
             "uuid_key": uuid_key,
             "created_at": datetime.now().isoformat(),
             "link_ids": [],
+            "quota_bytes": quota_bytes,
         }
     asyncio.create_task(save_state())
     log_activity("sub", f"گروه «{name}» ساخته شد", "ok")
@@ -468,6 +488,78 @@ async def create_sub(request: Request, _=Depends(require_auth)):
     return {
         "sub_id": sub_id,
         **SUBS[sub_id],
+        "public_url": f"https://{host}/p/{uuid_key}",
+        "sub_url": f"https://{host}/sub-group/{uuid_key}",
+    }
+
+@app.post("/api/subs/bulk-create")
+async def bulk_create_sub(request: Request, _=Depends(require_auth)):
+    """یک گروه ساب می‌سازه و در همون درخواست، چند کانفیگ (روی پروتکل‌های مختلف دلخواه)
+    داخلش می‌سازه که همه از یک حجم مشترک (quota_bytes گروه) استفاده می‌کنن — یعنی
+    برخلاف limit_bytes تکی روی هر لینک، سقف مصرف روی کل گروه چک می‌شه نه تک‌تک کانفیگ‌ها."""
+    body = await request.json()
+    name = (body.get("name") or "گروه جدید").strip()[:60]
+    desc = (body.get("desc") or "").strip()[:200]
+    password = (body.get("password") or "").strip()
+    qv = float(body.get("quota_value") or 0)
+    qu = body.get("quota_unit") or "GB"
+    quota_bytes = 0 if qv <= 0 else parse_size_to_bytes(qv, qu)
+    items = body.get("links") or []
+    if not isinstance(items, list) or not items:
+        raise HTTPException(status_code=400, detail="حداقل یک کانفیگ لازم است")
+    if len(items) > 20:
+        raise HTTPException(status_code=400, detail="حداکثر ۲۰ کانفیگ در هر گروه")
+
+    sub_id = generate_uuid()
+    uuid_key = secrets.token_urlsafe(16)
+    async with SUBS_LOCK:
+        SUBS[sub_id] = {
+            "name": name,
+            "desc": desc,
+            "password_hash": hash_password(password) if password else None,
+            "uuid_key": uuid_key,
+            "created_at": datetime.now().isoformat(),
+            "link_ids": [],
+            "quota_bytes": quota_bytes,
+        }
+
+    created = []
+    for it in items:
+        try:
+            sv = float(it.get("speed_limit_value") or 0)
+        except (TypeError, ValueError):
+            sv = 0
+        su = it.get("speed_limit_unit") or "MBIT"
+        speed_limit_bytes = 0 if sv <= 0 else parse_speed_to_bytes(sv, su)
+        try:
+            ip_limit = int(it.get("ip_limit") or 0)
+        except (TypeError, ValueError):
+            ip_limit = 0
+        try:
+            port = int(it.get("port") or DEFAULT_PORT)
+        except (TypeError, ValueError):
+            port = DEFAULT_PORT
+        uid, link = await make_link(
+            label=it.get("label") or f"{name} - {it.get('protocol','')}",
+            limit_bytes=0,  # کوتا سطح گروهه، نه تک‌تک لینک‌ها
+            expires_at=None,
+            note="",
+            sub_id=sub_id,
+            protocol=it.get("protocol") or DEFAULT_PROTOCOL,
+            fingerprint=it.get("fingerprint") or DEFAULT_FINGERPRINT,
+            alpn=it.get("alpn") or "",
+            port=port,
+            ip_limit=ip_limit,
+            speed_limit_bytes=speed_limit_bytes,
+        )
+        created.append({"uuid": uid, **link})
+
+    log_activity("sub", f"گروه «{name}» با {len(created)} کانفیگ و حجم مشترک {fmt_bytes(quota_bytes) if quota_bytes else '∞'} ساخته شد", "ok")
+    host = get_host(request)
+    return {
+        "sub_id": sub_id,
+        **SUBS[sub_id],
+        "links": created,
         "public_url": f"https://{host}/p/{uuid_key}",
         "sub_url": f"https://{host}/sub-group/{uuid_key}",
     }
@@ -484,6 +576,8 @@ async def list_subs(request: Request, _=Depends(require_auth)):
         link_ids = s.get("link_ids", [])
         active_count = sum(1 for lid in link_ids if is_link_allowed(snap_links.get(lid)))
         total_used = sum(snap_links[lid].get("used_bytes", 0) for lid in link_ids if lid in snap_links)
+        quota_bytes = s.get("quota_bytes", 0)
+        online_now = any(c.get("uuid") in link_ids for c in connections.values())
         result.append({
             "sub_id": sid,
             **s,
@@ -493,6 +587,11 @@ async def list_subs(request: Request, _=Depends(require_auth)):
             "active_count": active_count,
             "total_used_bytes": total_used,
             "total_used_fmt": fmt_bytes(total_used),
+            "quota_bytes": quota_bytes,
+            "quota_fmt": "∞" if quota_bytes == 0 else fmt_bytes(quota_bytes),
+            "remaining_bytes": None if quota_bytes == 0 else max(0, quota_bytes - total_used),
+            "remaining_fmt": "∞" if quota_bytes == 0 else fmt_bytes(max(0, quota_bytes - total_used)),
+            "is_online": online_now,
             "public_url": f"https://{host}/p/{s['uuid_key']}",
             "sub_url": f"https://{host}/sub-group/{s['uuid_key']}",
         })
@@ -515,6 +614,10 @@ async def update_sub(sub_id: str, request: Request, _=Depends(require_auth)):
             s["password_hash"] = hash_password(pw) if pw else None
         if "link_ids" in body:
             s["link_ids"] = list(body["link_ids"])
+        if "quota_value" in body or "quota_unit" in body:
+            qv = float(body.get("quota_value") or 0)
+            qu = body.get("quota_unit") or "GB"
+            s["quota_bytes"] = 0 if qv <= 0 else parse_size_to_bytes(qv, qu)
     asyncio.create_task(save_state())
     return {"ok": True}
 
@@ -1154,13 +1257,19 @@ async def public_sub_data(uuid_key: str, request: Request):
         })
 
     total_used = sum(l["used_bytes"] for l in links_out)
+    quota_bytes = sub.get("quota_bytes", 0)
     return {
         "locked": False,
         "name": sub["name"],
         "desc": sub.get("desc", ""),
         "sub_url": f"https://{host}/sub-group/{uuid_key}",
         "active_connections": active_conns,
+        "is_online": active_conns > 0,
         "total_used_fmt": fmt_bytes(total_used),
+        "quota_bytes": quota_bytes,
+        "quota_fmt": "∞" if quota_bytes == 0 else fmt_bytes(quota_bytes),
+        "remaining_bytes": None if quota_bytes == 0 else max(0, quota_bytes - total_used),
+        "remaining_fmt": "∞" if quota_bytes == 0 else fmt_bytes(max(0, quota_bytes - total_used)),
         "links": links_out,
     }
 

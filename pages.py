@@ -719,30 +719,112 @@ a{color:inherit;text-decoration:none}
   </div>
 </div>
 <div class="modal-bg" id="modal-create-sub">
-  <div class="modal-v2">
+  <div class="modal-v2" style="max-width:560px">
     <div class="modal-v2-head">
       <button class="modal-v2-close" onclick="closeModal('modal-create-sub')"><i class="ti ti-x"></i></button>
       <div class="modal-v2-icon"><i class="ti ti-folder-plus"></i></div>
       <div class="modal-v2-title">ساخت گروه جدید</div>
-      <div class="modal-v2-sub">یک صفحه پابلیک مجزا برای مدیریت کانفیگ‌ها بسازید</div>
+      <div class="modal-v2-sub">یک یا چند پروتکل انتخاب کن، همه از یک حجم مشترک استفاده می‌کنن و یک لینک ساب می‌گیری</div>
     </div>
     <div class="modal-v2-body">
       <div class="modal-v2-field">
         <label><i class="ti ti-tag"></i> نام گروه</label>
-        <input class="modal-v2-input" id="ns-name" placeholder="مثلاً: کانال تلگرام">
+        <input class="modal-v2-input" id="ns-name" placeholder="مثلاً: کاربر علی">
       </div>
       <div class="modal-v2-field">
         <label><i class="ti ti-align-left"></i> توضیحات (اختیاری)</label>
         <input class="modal-v2-input" id="ns-desc" placeholder="توضیح کوتاه درباره این گروه">
       </div>
-      <div class="modal-v2-field" style="margin-bottom:0">
+      <div class="modal-v2-field">
         <label><i class="ti ti-lock"></i> رمز صفحه پابلیک (اختیاری)</label>
         <input class="modal-v2-input" id="ns-pw" type="password" placeholder="خالی بگذارید = بدون رمز">
       </div>
+
+      <div class="cp-block mb16" style="margin-top:14px">
+        <div class="cp-block-label"><i class="ti ti-gauge"></i> حجم اشتراکی کل گروه</div>
+        <div class="cp-quota-inputs">
+          <input class="modal-v2-input" id="ns-quota-val" type="number" min="0" step="0.1" placeholder="0 = نامحدود" value="1">
+          <select class="modal-v2-input fs" id="ns-quota-unit"><option value="GB" selected>GB</option><option value="MB">MB</option></select>
+        </div>
+        <div class="chip-row" id="ns-quota-chips">
+          <span class="chip" onclick="setNsQuota(0,'GB',this)">نامحدود</span>
+          <span class="chip" onclick="setNsQuota(500,'MB',this)">۵۰۰ MB</span>
+          <span class="chip active" onclick="setNsQuota(1,'GB',this)">۱ GB</span>
+          <span class="chip" onclick="setNsQuota(5,'GB',this)">۵ GB</span>
+          <span class="chip" onclick="setNsQuota(10,'GB',this)">۱۰ GB</span>
+          <span class="chip" onclick="setNsQuota(50,'GB',this)">۵۰ GB</span>
+        </div>
+        <div class="cl" style="margin-top:8px"><i class="ti ti-info-circle"></i><span>این حجم بین همه‌ی پروتکل‌هایی که پایین انتخاب می‌کنی مشترکه — مجموع مصرف همه با این عدد مقایسه می‌شه، نه هرکدوم جدا.</span></div>
+      </div>
+
+      <div class="cp-block mb16">
+        <div class="cp-block-label"><i class="ti ti-plug-connected"></i> پروتکل‌ها (می‌تونی چندتا انتخاب کنی)</div>
+        <div class="proto-cards" id="ns-proto-cards">
+          <div class="proto-card" data-val="vless-ws" onclick="toggleNsProto('vless-ws',this)">
+            <div class="proto-card-check"><i class="ti ti-check"></i></div>
+            <div class="proto-card-icon"><i class="ti ti-link"></i></div>
+            <div class="proto-card-title">VLESS / WS</div>
+            <div class="proto-card-desc">پایدار و همه‌منظوره</div>
+          </div>
+          <div class="proto-card" data-val="xhttp-packet-up" onclick="toggleNsProto('xhttp-packet-up',this)">
+            <div class="proto-card-check"><i class="ti ti-check"></i></div>
+            <div class="proto-card-icon"><i class="ti ti-bolt"></i></div>
+            <div class="proto-card-title">XHTTP · packet-up</div>
+            <div class="proto-card-desc">سازگار با CDN</div>
+          </div>
+          <div class="proto-card" data-val="xhttp-stream-up" onclick="toggleNsProto('xhttp-stream-up',this)">
+            <div class="proto-card-check"><i class="ti ti-check"></i></div>
+            <div class="proto-card-icon"><i class="ti ti-rocket"></i></div>
+            <div class="proto-card-title">XHTTP · stream-up</div>
+            <div class="proto-card-desc">تاخیر پایین‌تر</div>
+          </div>
+        </div>
+        <div class="cl" style="margin-top:8px"><i class="ti ti-info-circle"></i><span>به ازای هر پروتکلی که انتخاب کنی، یک کانفیگ جدا داخل همین گروه ساخته می‌شه (با تنظیمات زیر).</span></div>
+      </div>
+
+      <div class="cp-row mb16">
+        <div class="cp-block">
+          <div class="cp-block-label"><i class="ti ti-fingerprint"></i> Fingerprint (uTLS)</div>
+          <select class="modal-v2-input fs" id="ns-fp">
+            <option value="chrome" selected>chrome</option>
+            <option value="firefox">firefox</option>
+            <option value="safari">safari</option>
+            <option value="ios">ios</option>
+            <option value="android">android</option>
+            <option value="edge">edge</option>
+            <option value="360">360</option>
+            <option value="qq">qq</option>
+            <option value="random">random</option>
+            <option value="randomized">randomized</option>
+          </select>
+        </div>
+        <div class="cp-block">
+          <div class="cp-block-label"><i class="ti ti-route"></i> پورت اتصال</div>
+          <input class="modal-v2-input" id="ns-port" type="number" min="1" max="65535" placeholder="443" value="443">
+        </div>
+      </div>
+      <div class="cp-row" style="margin-bottom:0">
+        <div class="cp-block">
+          <div class="cp-block-label"><i class="ti ti-users"></i> محدودیت آی‌پی هر کانفیگ</div>
+          <input class="modal-v2-input" id="ns-iplimit" type="number" min="0" step="1" placeholder="0 = نامحدود" value="0">
+        </div>
+        <div class="cp-block">
+          <div class="cp-block-label"><i class="ti ti-gauge"></i> محدودیت سرعت هر کانفیگ</div>
+          <div class="form-row">
+            <input class="modal-v2-input" id="ns-speed" type="number" min="0" step="0.5" placeholder="0" value="0" style="flex:1">
+            <select class="fs" id="ns-speed-unit" style="flex:0 0 90px">
+              <option value="MBIT" selected>Mbps</option>
+              <option value="KB">KB/s</option>
+              <option value="MB">MB/s</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       <div class="cl" style="margin-top:14px"><i class="ti ti-info-circle"></i><span>صفحه پابلیک این گروه با یک لینک منحصر‌به‌فرد در اینترنت در دسترس خواهد بود.</span></div>
       <div class="modal-v2-footer">
         <button class="btn btn-o" onclick="closeModal('modal-create-sub')" style="flex:.6">انصراف</button>
-        <button class="btn btn-pur" onclick="createSub()"><i class="ti ti-folder-plus"></i> ساخت گروه</button>
+        <button class="btn btn-pur" onclick="createSub()"><i class="ti ti-folder-plus"></i> ساخت گروه و کانفیگ‌ها</button>
       </div>
     </div>
   </div>
@@ -1648,7 +1730,11 @@ function renderSubsGrid(subs){
         <div class="sub-card-head-v2">
           <div class="sub-card-icon"><i class="ti ti-folder"></i></div>
           <div class="sub-card-titles">
-            <div class="sub-card-name-v2">${esc(s.name)}</div>
+            <div class="sub-card-name-v2">${esc(s.name)}
+              <span class="conn-live-badge ${s.is_online?'is-live':''}" style="margin-inline-start:8px" title="${s.is_online?'همین الان کسی به این گروه متصل است':'در حال حاضر کسی متصل نیست'}">
+                <span class="dot ${s.is_online?'dg pulse':'dr'}"></span>${s.is_online?'متصل':'آفلاین'}
+              </span>
+            </div>
             ${s.desc?`<div class="sub-card-desc-v2">${esc(s.desc)}</div>`:'<div class="sub-card-desc-v2" style="opacity:.5">بدون توضیحات</div>'}
           </div>
           <div class="sub-card-lock-badge ${s.has_password?'locked':'open'}" title="${s.has_password?'رمزدار':'پابلیک'}">
@@ -1658,8 +1744,9 @@ function renderSubsGrid(subs){
         <div class="sub-card-stats">
           <div class="sub-card-stat"><div class="sub-card-stat-val">${toFa(s.links_count)}</div><div class="sub-card-stat-label">کانفیگ</div></div>
           <div class="sub-card-stat"><div class="sub-card-stat-val" style="color:var(--green-t)">${toFa(s.active_count)}</div><div class="sub-card-stat-label">فعال</div></div>
-          <div class="sub-card-stat"><div class="sub-card-stat-val" style="font-size:12px">${esc(s.total_used_fmt)}</div><div class="sub-card-stat-label">مصرف</div></div>
+          <div class="sub-card-stat"><div class="sub-card-stat-val" style="font-size:12px">${s.quota_bytes>0?esc(s.remaining_fmt):esc(s.total_used_fmt)}</div><div class="sub-card-stat-label">${s.quota_bytes>0?'باقی‌مانده':'مصرف'}</div></div>
         </div>
+        ${s.quota_bytes>0?`<div style="font-size:9.5px;color:var(--t3);margin-top:8px;padding-top:8px;border-top:1px dashed var(--card-b)"><i class="ti ti-gauge"></i> ${esc(s.total_used_fmt)} از ${esc(s.quota_fmt)} حجم مشترک گروه مصرف شده</div>`:''}
       </div>
       <div class="sub-card-url-row">
         <span class="sub-card-url-text">${esc(s.public_url)}</span>
@@ -1680,17 +1767,58 @@ function filterSubs(q){
   if(!q){renderSubsGrid(allSubsRaw);return}
   renderSubsGrid(allSubsRaw.filter(s=>s.name.toLowerCase().includes(q)||(s.desc||'').toLowerCase().includes(q)));
 }
+let nsSelectedProtos=new Set();
+const NS_PROTO_LABELS={'vless-ws':'VLESS/WS','xhttp-packet-up':'XHTTP Packet-Up','xhttp-stream-up':'XHTTP Stream-Up'};
+function toggleNsProto(val,el){
+  if(nsSelectedProtos.has(val)){nsSelectedProtos.delete(val);el.classList.remove('active');}
+  else{nsSelectedProtos.add(val);el.classList.add('active');}
+}
+function setNsQuota(val,unit,el){
+  document.getElementById('ns-quota-val').value=val===0?'':val;
+  document.getElementById('ns-quota-unit').value=unit;
+  document.querySelectorAll('#ns-quota-chips .chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+}
+function resetCreateSubForm(){
+  ['ns-name','ns-desc','ns-pw'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('ns-quota-val').value='1';
+  document.getElementById('ns-quota-unit').value='GB';
+  document.getElementById('ns-fp').value='chrome';
+  document.getElementById('ns-port').value='443';
+  document.getElementById('ns-iplimit').value='0';
+  document.getElementById('ns-speed').value='0';
+  document.getElementById('ns-speed-unit').value='MBIT';
+  nsSelectedProtos.clear();
+  document.querySelectorAll('#ns-proto-cards .proto-card').forEach(c=>c.classList.remove('active'));
+  document.querySelectorAll('#ns-quota-chips .chip').forEach(c=>c.classList.remove('active'));
+  document.querySelector('#ns-quota-chips .chip:nth-child(3)')?.classList.add('active');
+}
 async function createSub(){
   const name=document.getElementById('ns-name').value.trim()||'گروه جدید';
   const desc=document.getElementById('ns-desc').value.trim();
   const pw=document.getElementById('ns-pw').value;
+  const quota_value=parseFloat(document.getElementById('ns-quota-val').value)||0;
+  const quota_unit=document.getElementById('ns-quota-unit').value;
+  if(nsSelectedProtos.size===0){toast('حداقل یک پروتکل انتخاب کن','err');return;}
+  const fingerprint=document.getElementById('ns-fp').value;
+  const port=parseInt(document.getElementById('ns-port').value)||443;
+  const ip_limit=parseInt(document.getElementById('ns-iplimit').value)||0;
+  const speed_limit_value=parseFloat(document.getElementById('ns-speed').value)||0;
+  const speed_limit_unit=document.getElementById('ns-speed-unit').value;
+  const links=[...nsSelectedProtos].map(proto=>({
+    protocol:proto,
+    label:name+' · '+(NS_PROTO_LABELS[proto]||proto),
+    fingerprint,port,ip_limit,speed_limit_value,speed_limit_unit,
+  }));
   try{
-    const r=await authF('/api/subs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,desc,password:pw})});
-    if(!r.ok)throw new Error('failed');
-    ['ns-name','ns-desc','ns-pw'].forEach(id=>document.getElementById(id).value='');
+    const r=await authF('/api/subs/bulk-create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,desc,password:pw,quota_value,quota_unit,links})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(d.detail||'خطا در ساخت گروه');
+    resetCreateSubForm();
     closeModal('modal-create-sub');
-    toast('گروه ساخته شد ✓','ok');loadSubs();
-  }catch(e){toast('خطا در ساخت گروه','err')}
+    toast('گروه با '+links.length+' کانفیگ ساخته شد ✓','ok');
+    loadSubs();loadLinks();
+  }catch(e){toast('✗ '+(e.message||'خطا در ساخت گروه'),'err')}
 }
 async function deleteSub(sub_id){
   if(!confirm('حذف این گروه؟ کانفیگ‌ها حذف نمی‌شوند.'))return;
@@ -2395,14 +2523,16 @@ function renderContent(d){{
         <div class="stat-sub">از ${{toFa(d.links.length)}} کانفیگ</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">اتصالات زنده</div>
-        <div class="stat-val">${{toFa(d.active_connections)}}</div>
-        <div class="stat-sub" style="color:var(--green-t);display:flex;align-items:center;gap:4px"><span class="dot"></span> آنلاین</div>
+        <div class="stat-label">وضعیت اتصال</div>
+        <div class="stat-val" style="font-size:17px;display:flex;align-items:center;gap:6px;color:${{d.is_online?'var(--green-t)':'var(--t3)'}}">
+          <span class="dot" style="background:${{d.is_online?'var(--green)':'var(--t3)'}}"></span>${{d.is_online?'متصل':'آفلاین'}}
+        </div>
+        <div class="stat-sub">${{d.is_online?'همین الان در حال استفاده':'در حال حاضر کسی متصل نیست'}}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">کل مصرف</div>
-        <div class="stat-val" style="font-size:17px;margin-top:3px">${{esc(d.total_used_fmt)}}</div>
-        <div class="stat-sub">همه کانفیگ‌ها</div>
+        <div class="stat-label">${{d.quota_bytes>0?'حجم باقی‌مانده':'کل مصرف'}}</div>
+        <div class="stat-val" style="font-size:17px;margin-top:3px">${{d.quota_bytes>0?esc(d.remaining_fmt):esc(d.total_used_fmt)}}</div>
+        <div class="stat-sub">${{d.quota_bytes>0?(esc(d.total_used_fmt)+' از '+esc(d.quota_fmt)+' مصرف شده'):'همه کانفیگ‌ها'}}</div>
       </div>
     </div>
 
