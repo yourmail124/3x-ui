@@ -1683,7 +1683,7 @@ async function deleteSub(sub_id){
   if(!confirm('حذف این گروه؟ کانفیگ‌ها حذف نمی‌شوند.'))return;
   try{const r=await authF('/api/subs/'+sub_id,{method:'DELETE'});if(!r.ok)throw new Error();toast('گروه حذف شد ✓','ok');loadSubs();loadLinks();}catch(e){toast('خطا','err')}
 }
-let lmodalLinks=[],lmodalInSub=new Set();
+let lmodalLinks=[],lmodalInSub=new Set(),lmodalOriginalInSub=new Set();
 async function openSubLinks(sub_id,name){
   currentSubId=sub_id;
   document.getElementById('modal-sub-name').textContent=name;
@@ -1696,6 +1696,7 @@ async function openSubLinks(sub_id,name){
     const {subs=[]}=await sr.json();
     const thisSub=subs.find(s=>s.sub_id===sub_id);
     lmodalInSub=new Set(thisSub?.link_ids||[]);
+    lmodalOriginalInSub=new Set(lmodalInSub); // اسنپ‌شات وضعیت اولیه، برای تشخیص اینکه فقط کدوم کانفیگ‌ها واقعاً تغییر کردن
     lmodalLinks=links;
     renderLmodalList(links);
   }catch(e){toast('خطا در بارگذاری','err')}
@@ -1743,7 +1744,10 @@ async function saveSubLinks(){
   try{
     const r=await authF('/api/subs/'+currentSubId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({link_ids})});
     if(!r.ok)throw new Error();
-    await Promise.all(lmodalLinks.map(l=>
+    // فقط کانفیگ‌هایی رو آپدیت کن که وضعیت عضویتشون نسبت به قبل واقعاً عوض شده
+    // (نه همه‌ی کانفیگ‌های سیستم — وگرنه کانفیگ‌های گروه‌های دیگه که این‌جا تیک نخوردن هم null می‌شدن)
+    const changed=lmodalLinks.filter(l=>lmodalInSub.has(l.uuid)!==lmodalOriginalInSub.has(l.uuid));
+    await Promise.all(changed.map(l=>
       authF('/api/links/'+l.uuid,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({sub_id:lmodalInSub.has(l.uuid)?currentSubId:null})})
     ));
     closeModal('modal-links');
