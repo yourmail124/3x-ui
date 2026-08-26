@@ -318,6 +318,26 @@ def parse_speed_to_bytes(value: float, unit: str) -> int:
         return int(value * 1024 * 1024)
     return int(value)
 
+def is_sub_expired(sub: dict) -> bool:
+    exp = sub.get("expires_at")
+    if not exp:
+        return False
+    try:
+        return datetime.now() > datetime.fromisoformat(exp)
+    except Exception:
+        return False
+
+def build_userinfo_header(used_bytes: int, quota_bytes: int, expires_at: str | None) -> str:
+    """هدر subscription-userinfo استاندارد که کلاینت‌های v2ray (v2rayNG/v2rayN/...) موقع
+    ایمپورت خودکار می‌خونن و حجم باقی‌مانده + روزهای باقی‌مانده رو نشون می‌دن."""
+    parts = [f"upload=0", f"download={int(used_bytes)}", f"total={int(quota_bytes)}"]
+    if expires_at:
+        try:
+            parts.append(f"expire={int(datetime.fromisoformat(expires_at).timestamp())}")
+        except Exception:
+            pass
+    return "; ".join(parts)
+
 def is_link_expired(link: dict) -> bool:
     exp = link.get("expires_at")
     if not exp:
@@ -350,6 +370,10 @@ def is_link_allowed(link: dict | None) -> bool:
     if sub_id:
         sub = SUBS.get(sub_id)
         if sub:
+            if not sub.get("active", True):
+                return False
+            if is_sub_expired(sub):
+                return False
             qb = sub.get("quota_bytes", 0)
             if qb > 0 and sub_group_used_bytes(sub_id) >= qb:
                 return False
@@ -441,8 +465,16 @@ async def subscription_single(uuid: str, request: Request):
     host = get_host(request)
     vless = vless_link_for_link(link, uuid, host)
     content = base64.b64encode(vless.encode()).decode()
-    return Response(content=content, media_type="text/plain",
-                    headers={"profile-title": quote(link["label"])})
+    return Response(
+        content=content, media_type="text/plain",
+        headers={
+            "profile-title": quote(link["label"]),
+            "profile-update-interval": "6",
+            "subscription-userinfo": build_userinfo_header(
+                link.get("used_bytes", 0), link.get("limit_bytes", 0), link.get("expires_at")
+            ),
+        },
+    )
 
 @app.get("/sub-all")
 async def subscription_all(request: Request, _=Depends(require_auth)):
@@ -470,6 +502,8 @@ async def create_sub(request: Request, _=Depends(require_auth)):
     qv = float(body.get("quota_value") or 0)
     qu = body.get("quota_unit") or "GB"
     quota_bytes = 0 if qv <= 0 else parse_size_to_bytes(qv, qu)
+    exp_days = int(body.get("expires_days") or 0)
+    expires_at = (datetime.now() + timedelta(days=exp_days)).isoformat() if exp_days > 0 else None
     sub_id = generate_uuid()
     uuid_key = secrets.token_urlsafe(16)
     async with SUBS_LOCK:
@@ -481,6 +515,8 @@ async def create_sub(request: Request, _=Depends(require_auth)):
             "created_at": datetime.now().isoformat(),
             "link_ids": [],
             "quota_bytes": quota_bytes,
+            "active": True,
+            "expires_at": expires_at,
         }
     asyncio.create_task(save_state())
     log_activity("sub", f"گروه «{name}» ساخته شد", "ok")
@@ -504,6 +540,8 @@ async def bulk_create_sub(request: Request, _=Depends(require_auth)):
     qv = float(body.get("quota_value") or 0)
     qu = body.get("quota_unit") or "GB"
     quota_bytes = 0 if qv <= 0 else parse_size_to_bytes(qv, qu)
+    exp_days = int(body.get("expires_days") or 0)
+    expires_at = (datetime.now() + timedelta(days=exp_days)).isoformat() if exp_days > 0 else None
     items = body.get("links") or []
     if not isinstance(items, list) or not items:
         raise HTTPException(status_code=400, detail="حداقل یک کانفیگ لازم است")
@@ -521,6 +559,8 @@ async def bulk_create_sub(request: Request, _=Depends(require_auth)):
             "created_at": datetime.now().isoformat(),
             "link_ids": [],
             "quota_bytes": quota_bytes,
+            "active": True,
+            "expires_at": expires_at,
         }
 
     created = []
@@ -578,6 +618,13 @@ async def list_subs(request: Request, _=Depends(require_auth)):
         total_used = sum(snap_links[lid].get("used_bytes", 0) for lid in link_ids if lid in snap_links)
         quota_bytes = s.get("quota_bytes", 0)
         online_now = any(c.get("uuid") in link_ids for c in connections.values())
+        expires_at = s.get("expires_at")
+        days_left = None
+        if expires_at:
+            try:
+                days_left = max(0, (datetime.fromisoformat(expires_at) - datetime.now()).days)
+            except Exception:
+                days_left = None
         result.append({
             "sub_id": sid,
             **s,
@@ -592,6 +639,10 @@ async def list_subs(request: Request, _=Depends(require_auth)):
             "remaining_bytes": None if quota_bytes == 0 else max(0, quota_bytes - total_used),
             "remaining_fmt": "∞" if quota_bytes == 0 else fmt_bytes(max(0, quota_bytes - total_used)),
             "is_online": online_now,
+            "active": s.get("active", True),
+            "expires_at": expires_at,
+            "is_expired": is_sub_expired(s),
+            "days_left": days_left,
             "public_url": f"https://{host}/p/{s['uuid_key']}",
             "sub_url": f"https://{host}/sub-group/{s['uuid_key']}",
         })
@@ -618,8 +669,32 @@ async def update_sub(sub_id: str, request: Request, _=Depends(require_auth)):
             qv = float(body.get("quota_value") or 0)
             qu = body.get("quota_unit") or "GB"
             s["quota_bytes"] = 0 if qv <= 0 else parse_size_to_bytes(qv, qu)
+        if "active" in body:
+            s["active"] = bool(body["active"])
+        if "expires_days" in body:
+            ed = int(body.get("expires_days") or 0)
+            s["expires_at"] = (datetime.now() + timedelta(days=ed)).isoformat() if ed > 0 else None
     asyncio.create_task(save_state())
+    action = "فعال" if body.get("active") is True else ("غیرفعال" if body.get("active") is False else None)
+    if action:
+        log_activity("sub", f"گروه «{s['name']}» {action} شد", "info")
     return {"ok": True}
+
+@app.post("/api/subs/{sub_id}/reset")
+async def reset_sub_usage(sub_id: str, _=Depends(require_auth)):
+    async with SUBS_LOCK:
+        sub = SUBS.get(sub_id)
+        if not sub:
+            raise HTTPException(status_code=404, detail="sub not found")
+        link_ids = list(sub.get("link_ids", []))
+        name = sub.get("name", "")
+    async with LINKS_LOCK:
+        for lid in link_ids:
+            if lid in LINKS:
+                LINKS[lid]["used_bytes"] = 0
+    asyncio.create_task(save_state())
+    log_activity("sub", f"مصرف گروه «{name}» ریست شد ({len(link_ids)} کانفیگ)", "ok")
+    return {"ok": True, "reset_count": len(link_ids)}
 
 @app.delete("/api/subs/{sub_id}")
 async def delete_sub(sub_id: str, _=Depends(require_auth)):
@@ -676,10 +751,13 @@ async def sub_group_subscription(uuid_key: str, request: Request):
     link_ids = sub.get("link_ids", [])
     async with LINKS_LOCK:
         lines = []
+        total_used = 0
         for lid in link_ids:
             link = LINKS.get(lid)
-            if link and is_link_allowed(link):
-                lines.append(vless_link_for_link(link, lid, host))
+            if link:
+                total_used += link.get("used_bytes", 0)
+                if is_link_allowed(link):
+                    lines.append(vless_link_for_link(link, lid, host))
 
     content = base64.b64encode("\n".join(lines).encode()).decode()
     return Response(
@@ -687,7 +765,10 @@ async def sub_group_subscription(uuid_key: str, request: Request):
         media_type="text/plain",
         headers={
             "profile-title": quote(sub["name"]),
-            "profile-update-interval": "12",
+            "profile-update-interval": "6",
+            "subscription-userinfo": build_userinfo_header(
+                total_used, sub.get("quota_bytes", 0), sub.get("expires_at")
+            ),
         }
     )
 
@@ -1258,6 +1339,8 @@ async def public_sub_data(uuid_key: str, request: Request):
 
     total_used = sum(l["used_bytes"] for l in links_out)
     quota_bytes = sub.get("quota_bytes", 0)
+    sub_active = sub.get("active", True)
+    sub_expired = is_sub_expired(sub)
     return {
         "locked": False,
         "name": sub["name"],
@@ -1270,6 +1353,9 @@ async def public_sub_data(uuid_key: str, request: Request):
         "quota_fmt": "∞" if quota_bytes == 0 else fmt_bytes(quota_bytes),
         "remaining_bytes": None if quota_bytes == 0 else max(0, quota_bytes - total_used),
         "remaining_fmt": "∞" if quota_bytes == 0 else fmt_bytes(max(0, quota_bytes - total_used)),
+        "sub_active": sub_active,
+        "sub_expired": sub_expired,
+        "expires_at": sub.get("expires_at"),
         "links": links_out,
     }
 

@@ -757,6 +757,11 @@ a{color:inherit;text-decoration:none}
         <div class="cl" style="margin-top:8px"><i class="ti ti-info-circle"></i><span>این حجم بین همه‌ی پروتکل‌هایی که پایین انتخاب می‌کنی مشترکه — مجموع مصرف همه با این عدد مقایسه می‌شه، نه هرکدوم جدا.</span></div>
       </div>
 
+      <div class="modal-v2-field mb16">
+        <label><i class="ti ti-calendar-due"></i> انقضای گروه (روز)</label>
+        <input class="modal-v2-input" id="ns-exp" type="number" min="0" step="1" placeholder="۰ = بدون انقضا">
+      </div>
+
       <div class="cp-block mb16">
         <div class="cp-block-label"><i class="ti ti-plug-connected"></i> پروتکل‌ها (می‌تونی چندتا انتخاب کنی)</div>
         <div class="proto-cards" id="ns-proto-cards">
@@ -779,12 +784,14 @@ a{color:inherit;text-decoration:none}
             <div class="proto-card-desc">تاخیر پایین‌تر</div>
           </div>
         </div>
-        <div class="cl" style="margin-top:8px"><i class="ti ti-info-circle"></i><span>به ازای هر پروتکلی که انتخاب کنی، یک کانفیگ جدا داخل همین گروه ساخته می‌شه (با تنظیمات زیر).</span></div>
+        <div class="cl" style="margin-top:8px"><i class="ti ti-info-circle"></i><span>به ازای هر پروتکلی که انتخاب کنی، یک کانفیگ جدا (با تنظیمات اختصاصی خودش که پایین ظاهر می‌شه) داخل همین گروه ساخته می‌شه.</span></div>
       </div>
+
+      <div id="ns-proto-settings"></div>
 
       <div class="cp-row mb16">
         <div class="cp-block">
-          <div class="cp-block-label"><i class="ti ti-fingerprint"></i> Fingerprint (uTLS)</div>
+          <div class="cp-block-label"><i class="ti ti-fingerprint"></i> Fingerprint (uTLS) مشترک</div>
           <select class="modal-v2-input fs" id="ns-fp">
             <option value="chrome" selected>chrome</option>
             <option value="firefox">firefox</option>
@@ -799,7 +806,7 @@ a{color:inherit;text-decoration:none}
           </select>
         </div>
         <div class="cp-block">
-          <div class="cp-block-label"><i class="ti ti-route"></i> پورت اتصال</div>
+          <div class="cp-block-label"><i class="ti ti-route"></i> پورت اتصال مشترک</div>
           <input class="modal-v2-input" id="ns-port" type="number" min="1" max="65535" placeholder="443" value="443">
         </div>
       </div>
@@ -825,6 +832,45 @@ a{color:inherit;text-decoration:none}
       <div class="modal-v2-footer">
         <button class="btn btn-o" onclick="closeModal('modal-create-sub')" style="flex:.6">انصراف</button>
         <button class="btn btn-pur" onclick="createSub()"><i class="ti ti-folder-plus"></i> ساخت گروه و کانفیگ‌ها</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="modal-edit-sub">
+  <div class="modal-v2" style="max-width:460px">
+    <div class="modal-v2-head">
+      <button class="modal-v2-close" onclick="closeModal('modal-edit-sub')"><i class="ti ti-x"></i></button>
+      <div class="modal-v2-icon"><i class="ti ti-edit"></i></div>
+      <div class="modal-v2-title">ویرایش گروه</div>
+      <div class="modal-v2-sub">اسم، رمز، حجم مشترک و انقضای این گروه رو تغییر بده</div>
+    </div>
+    <div class="modal-v2-body">
+      <div class="modal-v2-field">
+        <label><i class="ti ti-tag"></i> نام گروه</label>
+        <input class="modal-v2-input" id="es-name">
+      </div>
+      <div class="modal-v2-field">
+        <label><i class="ti ti-align-left"></i> توضیحات</label>
+        <input class="modal-v2-input" id="es-desc">
+      </div>
+      <div class="modal-v2-field">
+        <label><i class="ti ti-lock"></i> رمز صفحه پابلیک</label>
+        <input class="modal-v2-input" id="es-pw" type="password" placeholder="خالی = بدون رمز">
+      </div>
+      <div class="cp-block mb16">
+        <div class="cp-block-label"><i class="ti ti-gauge"></i> حجم اشتراکی گروه</div>
+        <div class="cp-quota-inputs">
+          <input class="modal-v2-input" id="es-quota-val" type="number" min="0" step="0.1" placeholder="0 = نامحدود">
+          <select class="modal-v2-input fs" id="es-quota-unit"><option value="GB" selected>GB</option><option value="MB">MB</option></select>
+        </div>
+      </div>
+      <div class="modal-v2-field" style="margin-bottom:0">
+        <label><i class="ti ti-calendar-due"></i> انقضا (روز از الان، ۰ = بدون انقضا)</label>
+        <input class="modal-v2-input" id="es-exp" type="number" min="0" step="1" placeholder="خالی = بدون تغییر">
+      </div>
+      <div class="modal-v2-footer">
+        <button class="btn btn-o" onclick="closeModal('modal-edit-sub')" style="flex:.6">انصراف</button>
+        <button class="btn btn-pur" onclick="saveEditSub()"><i class="ti ti-device-floppy"></i> ذخیره تغییرات</button>
       </div>
     </div>
   </div>
@@ -1734,6 +1780,7 @@ function renderSubsGrid(subs){
               <span class="conn-live-badge ${s.is_online?'is-live':''}" style="margin-inline-start:8px" title="${s.is_online?'همین الان کسی به این گروه متصل است':'در حال حاضر کسی متصل نیست'}">
                 <span class="dot ${s.is_online?'dg pulse':'dr'}"></span>${s.is_online?'متصل':'آفلاین'}
               </span>
+              ${s.active===false?'<span class="conn-live-badge" style="margin-inline-start:6px;background:var(--card-b);color:var(--t3)"><i class="ti ti-player-pause" style="font-size:10px"></i> غیرفعال</span>':(s.is_expired?'<span class="conn-live-badge" style="margin-inline-start:6px;background:var(--amber-bg);color:var(--amber-t)"><i class="ti ti-calendar-x" style="font-size:10px"></i> منقضی</span>':'')}
             </div>
             ${s.desc?`<div class="sub-card-desc-v2">${esc(s.desc)}</div>`:'<div class="sub-card-desc-v2" style="opacity:.5">بدون توضیحات</div>'}
           </div>
@@ -1757,6 +1804,9 @@ function renderSubsGrid(subs){
         <button class="btn btn-sm btn-g" onclick="openSubLinks('${esc(s.sub_id)}','${esc(s.name)}')"><i class="ti ti-link-plus"></i> کانفیگ‌ها</button>
         <button class="btn btn-sm btn-o" onclick="navigator.clipboard.writeText('${esc(s.sub_url)}').then(()=>toast('لینک ساب کپی شد','ok'))"><i class="ti ti-rss"></i> ساب</button>
         <button class="btn btn-sm btn-g btn-icon" onclick="showQR('${esc(s.sub_url)}')" title="QR"><i class="ti ti-qrcode"></i></button>
+        <button class="btn btn-sm btn-o btn-icon" onclick="openEditSub('${esc(s.sub_id)}')" title="ویرایش"><i class="ti ti-edit"></i></button>
+        <button class="btn btn-sm ${s.active===false?'btn-g':'btn-o'} btn-icon" onclick="toggleSubActive('${esc(s.sub_id)}',${s.active===false})" title="${s.active===false?'فعال‌سازی گروه':'غیرفعال‌سازی گروه'}"><i class="ti ${s.active===false?'ti-player-play':'ti-player-pause'}"></i></button>
+        <button class="btn btn-sm btn-o btn-icon" onclick="resetSubUsage('${esc(s.sub_id)}','${esc(s.name)}')" title="ریست مصرف گروه"><i class="ti ti-refresh-dot"></i></button>
         <button class="btn btn-sm btn-d btn-icon" onclick="deleteSub('${esc(s.sub_id)}')" title="حذف"><i class="ti ti-trash"></i></button>
       </div>
     </div>
@@ -1769,9 +1819,38 @@ function filterSubs(q){
 }
 let nsSelectedProtos=new Set();
 const NS_PROTO_LABELS={'vless-ws':'VLESS/WS','xhttp-packet-up':'XHTTP Packet-Up','xhttp-stream-up':'XHTTP Stream-Up'};
+function nsProtoSettingsCard(proto){
+  const label=NS_PROTO_LABELS[proto]||proto;
+  return `<div class="cp-block mb16" id="ns-set-${proto}" data-proto="${proto}">
+    <div class="cp-block-label"><i class="ti ti-adjustments"></i> تنظیمات اختصاصی ${label}</div>
+    <input class="modal-v2-input" id="ns-set-${proto}-label" placeholder="اسم این کانفیگ (اختیاری)" style="margin-bottom:8px">
+    <select class="modal-v2-input fs" id="ns-set-${proto}-alpn-preset" onchange="onNsAlpnChange('${proto}')">
+      <option value="">ALPN: پیش‌فرض پروتکل</option>
+      <option value="h2,http/1.1">h2,http/1.1</option>
+      <option value="http/1.1">http/1.1</option>
+      <option value="h2">h2</option>
+      <option value="__custom__">ALPN دستی...</option>
+    </select>
+    <input class="modal-v2-input" id="ns-set-${proto}-alpn" placeholder="مقدار دستی ALPN" style="display:none;margin-top:8px">
+  </div>`;
+}
+function onNsAlpnChange(proto){
+  const p=document.getElementById('ns-set-'+proto+'-alpn-preset').value;
+  const inp=document.getElementById('ns-set-'+proto+'-alpn');
+  inp.style.display = p==='__custom__' ? 'block' : 'none';
+  if(p!=='__custom__')inp.value=p;
+}
 function toggleNsProto(val,el){
-  if(nsSelectedProtos.has(val)){nsSelectedProtos.delete(val);el.classList.remove('active');}
-  else{nsSelectedProtos.add(val);el.classList.add('active');}
+  const box=document.getElementById('ns-proto-settings');
+  if(nsSelectedProtos.has(val)){
+    nsSelectedProtos.delete(val);
+    el.classList.remove('active');
+    document.getElementById('ns-set-'+val)?.remove();
+  }else{
+    nsSelectedProtos.add(val);
+    el.classList.add('active');
+    box.insertAdjacentHTML('beforeend', nsProtoSettingsCard(val));
+  }
 }
 function setNsQuota(val,unit,el){
   document.getElementById('ns-quota-val').value=val===0?'':val;
@@ -1780,7 +1859,7 @@ function setNsQuota(val,unit,el){
   el.classList.add('active');
 }
 function resetCreateSubForm(){
-  ['ns-name','ns-desc','ns-pw'].forEach(id=>document.getElementById(id).value='');
+  ['ns-name','ns-desc','ns-pw','ns-exp'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('ns-quota-val').value='1';
   document.getElementById('ns-quota-unit').value='GB';
   document.getElementById('ns-fp').value='chrome';
@@ -1789,6 +1868,7 @@ function resetCreateSubForm(){
   document.getElementById('ns-speed').value='0';
   document.getElementById('ns-speed-unit').value='MBIT';
   nsSelectedProtos.clear();
+  document.getElementById('ns-proto-settings').innerHTML='';
   document.querySelectorAll('#ns-proto-cards .proto-card').forEach(c=>c.classList.remove('active'));
   document.querySelectorAll('#ns-quota-chips .chip').forEach(c=>c.classList.remove('active'));
   document.querySelector('#ns-quota-chips .chip:nth-child(3)')?.classList.add('active');
@@ -1799,19 +1879,25 @@ async function createSub(){
   const pw=document.getElementById('ns-pw').value;
   const quota_value=parseFloat(document.getElementById('ns-quota-val').value)||0;
   const quota_unit=document.getElementById('ns-quota-unit').value;
+  const expires_days=parseInt(document.getElementById('ns-exp').value)||0;
   if(nsSelectedProtos.size===0){toast('حداقل یک پروتکل انتخاب کن','err');return;}
   const fingerprint=document.getElementById('ns-fp').value;
   const port=parseInt(document.getElementById('ns-port').value)||443;
   const ip_limit=parseInt(document.getElementById('ns-iplimit').value)||0;
   const speed_limit_value=parseFloat(document.getElementById('ns-speed').value)||0;
   const speed_limit_unit=document.getElementById('ns-speed-unit').value;
-  const links=[...nsSelectedProtos].map(proto=>({
-    protocol:proto,
-    label:name+' · '+(NS_PROTO_LABELS[proto]||proto),
-    fingerprint,port,ip_limit,speed_limit_value,speed_limit_unit,
-  }));
+  const links=[...nsSelectedProtos].map(proto=>{
+    const customLabel=document.getElementById('ns-set-'+proto+'-label')?.value.trim();
+    const alpnPreset=document.getElementById('ns-set-'+proto+'-alpn-preset')?.value||'';
+    const alpn=alpnPreset==='__custom__'?(document.getElementById('ns-set-'+proto+'-alpn')?.value.trim()||''):alpnPreset;
+    return {
+      protocol:proto,
+      label: customLabel || (name+' · '+(NS_PROTO_LABELS[proto]||proto)),
+      fingerprint,port,ip_limit,speed_limit_value,speed_limit_unit,alpn,
+    };
+  });
   try{
-    const r=await authF('/api/subs/bulk-create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,desc,password:pw,quota_value,quota_unit,links})});
+    const r=await authF('/api/subs/bulk-create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,desc,password:pw,quota_value,quota_unit,expires_days,links})});
     const d=await r.json().catch(()=>({}));
     if(!r.ok)throw new Error(d.detail||'خطا در ساخت گروه');
     resetCreateSubForm();
@@ -1823,6 +1909,62 @@ async function createSub(){
 async function deleteSub(sub_id){
   if(!confirm('حذف این گروه؟ کانفیگ‌ها حذف نمی‌شوند.'))return;
   try{const r=await authF('/api/subs/'+sub_id,{method:'DELETE'});if(!r.ok)throw new Error();toast('گروه حذف شد ✓','ok');loadSubs();loadLinks();}catch(e){toast('خطا','err')}
+}
+async function toggleSubActive(sub_id,makeActive){
+  try{
+    const r=await authF('/api/subs/'+sub_id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({active:makeActive})});
+    if(!r.ok)throw new Error();
+    toast(makeActive?'گروه فعال شد ✓':'گروه غیرفعال شد ✓','ok');
+    loadSubs();loadLinks();
+  }catch(e){toast('خطا در تغییر وضعیت گروه','err')}
+}
+async function resetSubUsage(sub_id,name){
+  if(!confirm('مصرف تمام کانفیگ‌های گروه «'+name+'» صفر بشه؟ این عمل قابل بازگشت نیست.'))return;
+  try{
+    const r=await authF('/api/subs/'+sub_id+'/reset',{method:'POST'});
+    if(!r.ok)throw new Error();
+    toast('مصرف گروه ریست شد ✓','ok');
+    loadSubs();loadLinks();
+  }catch(e){toast('خطا در ریست مصرف','err')}
+}
+let esEditingSubId=null;
+async function openEditSub(sub_id){
+  try{
+    const r=await authF('/api/subs');
+    const {subs=[]}=await r.json();
+    const s=subs.find(x=>x.sub_id===sub_id);
+    if(!s){toast('گروه پیدا نشد','err');return;}
+    esEditingSubId=sub_id;
+    document.getElementById('es-name').value=s.name||'';
+    document.getElementById('es-desc').value=s.desc||'';
+    document.getElementById('es-pw').value='';
+    document.getElementById('es-pw').placeholder=s.has_password?'رمز فعلی حفظ می‌شود؛ برای تغییر بنویسید':'خالی = بدون رمز';
+    const qb=s.quota_bytes||0;
+    if(qb>0 && qb%(1024*1024*1024)===0){document.getElementById('es-quota-val').value=qb/(1024*1024*1024);document.getElementById('es-quota-unit').value='GB';}
+    else if(qb>0){document.getElementById('es-quota-val').value=(qb/(1024*1024)).toFixed(0);document.getElementById('es-quota-unit').value='MB';}
+    else{document.getElementById('es-quota-val').value='';document.getElementById('es-quota-unit').value='GB';}
+    document.getElementById('es-exp').value=s.days_left!=null?s.days_left:'';
+    openModal('modal-edit-sub');
+  }catch(e){toast('خطا در بارگذاری گروه','err')}
+}
+async function saveEditSub(){
+  if(!esEditingSubId)return;
+  const name=document.getElementById('es-name').value.trim();
+  const desc=document.getElementById('es-desc').value.trim();
+  const pw=document.getElementById('es-pw').value;
+  const quota_value=parseFloat(document.getElementById('es-quota-val').value)||0;
+  const quota_unit=document.getElementById('es-quota-unit').value;
+  const expires_days=document.getElementById('es-exp').value===''?undefined:(parseInt(document.getElementById('es-exp').value)||0);
+  const body={name,desc,quota_value,quota_unit};
+  if(pw)body.password=pw;
+  if(expires_days!==undefined)body.expires_days=expires_days;
+  try{
+    const r=await authF('/api/subs/'+esEditingSubId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok)throw new Error();
+    closeModal('modal-edit-sub');
+    toast('گروه بروزرسانی شد ✓','ok');
+    loadSubs();
+  }catch(e){toast('خطا در ذخیره تغییرات','err')}
 }
 let lmodalLinks=[],lmodalInSub=new Set(),lmodalOriginalInSub=new Set();
 async function openSubLinks(sub_id,name){
@@ -2237,6 +2379,17 @@ html,body{{min-height:100%;background:var(--bg);font-family:var(--serif);color:v
 .sub-sub-box{{background:var(--accent-d);border:1px solid var(--card-b);border-radius:13px;padding:12px 14px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}}
 .sub-sub-url{{font-family:ui-monospace,monospace;font-size:10px;color:var(--accent2);word-break:break-all;flex:1;min-width:140px}}
 
+.v2ray-import-box{{background:linear-gradient(120deg,rgba(16,185,129,.14) 0%,rgba(5,150,105,.07) 100%);border:1.5px solid rgba(16,185,129,.35);border-radius:16px;padding:16px 18px;margin-top:12px}}
+.v2ray-import-head{{font-size:13.5px;font-weight:800;color:#059669;display:flex;align-items:center;gap:7px;margin-bottom:5px}}
+[data-theme="dark"] .v2ray-import-head{{color:#34D399}}
+.v2ray-import-sub{{font-size:11px;color:var(--t2);line-height:1.9;margin-bottom:12px}}
+.v2ray-import-btn{{display:flex;align-items:center;justify-content:center;gap:8px;background:#10B981;color:#fff;border:none;border-radius:13px;padding:13px 18px;font-family:inherit;font-size:13px;font-weight:800;cursor:pointer;text-decoration:none;transition:.18s;box-shadow:0 8px 22px rgba(16,185,129,.32)}}
+.v2ray-import-btn:hover{{background:#0EA871;transform:translateY(-1px);box-shadow:0 10px 26px rgba(16,185,129,.4)}}
+.v2ray-import-btn:active{{transform:translateY(0) scale(.98)}}
+.v2ray-import-alt{{display:flex;gap:8px;margin-top:9px}}
+.v2ray-import-alt-btn{{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:transparent;border:1.5px solid rgba(16,185,129,.35);color:#059669;border-radius:11px;padding:9px 10px;font-family:inherit;font-size:10.5px;font-weight:700;cursor:pointer;text-decoration:none}}
+[data-theme="dark"] .v2ray-import-alt-btn{{color:#34D399}}
+
 .stats-bar{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}}
 .stat-card{{background:var(--card);border:1px solid var(--card-b);border-radius:16px;padding:16px 17px;transition:.2s}}
 .stat-card:hover{{border-color:var(--card-bh);transform:translateY(-1px)}}
@@ -2495,6 +2648,7 @@ function renderContent(d){{
       <div class="sub-name">${{esc(d.name)}}</div>
       ${{d.desc ? `<div class="sub-desc">${{esc(d.desc)}}</div>` : ''}}
       <div class="sub-meta-row"><i class="ti ti-clock"></i> آخرین بروزرسانی: ${{new Date().toLocaleTimeString('fa-IR')}}</div>
+      ${{(d.sub_active===false || d.sub_expired) ? `<div class="v2ray-import-box" style="background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);margin-top:0;margin-bottom:14px"><div class="v2ray-import-head" style="color:#EF4444"><i class="ti ti-alert-triangle"></i> ${{d.sub_active===false?'این گروه غیرفعال شده':'مهلت این گروه به پایان رسیده'}}</div><div class="v2ray-import-sub" style="margin-bottom:0">کانفیگ‌های این گروه فعلاً کار نمی‌کنن. برای فعال‌سازی مجدد با مدیر پنل هماهنگ کن.</div></div>` : ''}}
       <div class="sub-sub-box">
         <span class="sub-sub-url">${{esc(subUrl)}}</span>
         <button class="btn btn-pur" style="padding:7px 12px;font-size:10.5px"
@@ -2505,6 +2659,22 @@ function renderContent(d){{
           onclick="showQR(window._panelSubName + ' — کل گروه', window._panelSubUrl)">
           <i class="ti ti-qrcode"></i> QR کل
         </button>
+      </div>
+
+      <div class="v2ray-import-box">
+        <div class="v2ray-import-head"><i class="ti ti-bolt"></i> افزودن خودکار به نرم‌افزار V2Ray</div>
+        <div class="v2ray-import-sub">با یک لمس این ساب مستقیم داخل اپ نصب می‌شه؛ حجم باقی‌مانده و روزهای باقی‌مانده رو خودِ اپ نشون می‌ده و هر چند ساعت یک‌بار خودکار بروزرسانی می‌کنه.</div>
+        <a class="v2ray-import-btn" href="v2rayng://install-sub?url=${{encodeURIComponent(window._panelSubUrl)}}&name=${{encodeURIComponent(window._panelSubName)}}">
+          <i class="ti ti-download"></i> افزودن خودکار (v2rayNG)
+        </a>
+        <div class="v2ray-import-alt">
+          <a class="v2ray-import-alt-btn" href="sn://subscription?url=${{encodeURIComponent(window._panelSubUrl)}}&name=${{encodeURIComponent(window._panelSubName)}}">
+            <i class="ti ti-brand-windows"></i> NekoBox / v2rayN
+          </a>
+          <button class="v2ray-import-alt-btn" onclick="navigator.clipboard.writeText(window._panelSubUrl).then(()=>toast('لینک کپی شد؛ داخل اپ به‌صورت دستی وارد کن','ok'))">
+            <i class="ti ti-clipboard-copy"></i> کپی برای ایمپورت دستی
+          </button>
+        </div>
       </div>
     </div>
 
