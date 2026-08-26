@@ -280,12 +280,46 @@ def generate_vless_link(
     query = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
     return f"vless://{uuid}@{host}:{port_val}?{query}#{quote(remark)}"
 
-def vless_link_for_link(link: dict, uid: str, host: str) -> str:
-    """generate_vless_link رو با تنظیمات دستی همون کانفیگ (fingerprint/alpn/port) صدا می‌زنه."""
+def format_days_left(expires_at: str | None) -> str | None:
+    if not expires_at:
+        return None
+    try:
+        days = max(0, (datetime.fromisoformat(expires_at) - datetime.now()).days)
+        return f"{days}d left"
+    except Exception:
+        return None
+
+def build_config_remark(link: dict) -> str:
+    """اسم نمایشی کانفیگ داخل اپ v2ray: اسم پایه (بدون پسوند پروتکل) + حجم باقی‌مانده + روز باقی‌مانده.
+    اگه کانفیگ عضو یه گروه با کوتای/انقضای مشترک باشه، از وضعیت گروه استفاده می‌شه، وگرنه از خود کانفیگ."""
+    base = (link.get("label") or "Config").strip()
+    sub_id = link.get("sub_id")
+    sub = SUBS.get(sub_id) if sub_id else None
+
+    if sub and sub.get("quota_bytes", 0) > 0:
+        remaining = max(0, sub["quota_bytes"] - sub_group_used_bytes(sub_id))
+        vol_part = fmt_bytes(remaining) + " left"
+    elif link.get("limit_bytes", 0) > 0:
+        remaining = max(0, link["limit_bytes"] - link.get("used_bytes", 0))
+        vol_part = fmt_bytes(remaining) + " left"
+    else:
+        vol_part = "∞"
+
+    exp = (sub.get("expires_at") if sub else None) or link.get("expires_at")
+    day_part = format_days_left(exp)
+
+    parts = [base, vol_part] + ([day_part] if day_part else [])
+    return " | ".join(parts)
+
+def vless_link_for_link(link: dict, uid: str, host: str, dynamic_remark: bool = False) -> str:
+    """generate_vless_link رو با تنظیمات دستی همون کانفیگ (fingerprint/alpn/port) صدا می‌زنه.
+    وقتی dynamic_remark=True باشه (برای سرو کردن ساب داخل اپ v2ray)، به‌جای اسم خام،
+    اسم + حجم باقی‌مانده + روز باقی‌مانده به‌عنوان remark ساخته می‌شه."""
     proto = link.get("protocol", DEFAULT_PROTOCOL)
+    remark = build_config_remark(link) if dynamic_remark else (link.get('label') or "Config")
     return generate_vless_link(
         uid, host,
-        remark=link.get('label') or "Config",
+        remark=remark,
         protocol=proto,
         fingerprint=link.get("fingerprint"),
         alpn=link.get("alpn"),
@@ -463,7 +497,7 @@ async def subscription_single(uuid: str, request: Request):
     if not link or not is_link_allowed(link):
         raise HTTPException(status_code=404, detail="not found or inactive")
     host = get_host(request)
-    vless = vless_link_for_link(link, uuid, host)
+    vless = vless_link_for_link(link, uuid, host, dynamic_remark=True)
     content = base64.b64encode(vless.encode()).decode()
     return Response(
         content=content, media_type="text/plain",
@@ -757,7 +791,7 @@ async def sub_group_subscription(uuid_key: str, request: Request):
             if link:
                 total_used += link.get("used_bytes", 0)
                 if is_link_allowed(link):
-                    lines.append(vless_link_for_link(link, lid, host))
+                    lines.append(vless_link_for_link(link, lid, host, dynamic_remark=True))
 
     content = base64.b64encode("\n".join(lines).encode()).decode()
     return Response(

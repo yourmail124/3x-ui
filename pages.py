@@ -1892,7 +1892,7 @@ async function createSub(){
     const alpn=alpnPreset==='__custom__'?(document.getElementById('ns-set-'+proto+'-alpn')?.value.trim()||''):alpnPreset;
     return {
       protocol:proto,
-      label: customLabel || (name+' · '+(NS_PROTO_LABELS[proto]||proto)),
+      label: customLabel || name,
       fingerprint,port,ip_limit,speed_limit_value,speed_limit_unit,alpn,
     };
   });
@@ -2389,6 +2389,9 @@ html,body{{min-height:100%;background:var(--bg);font-family:var(--serif);color:v
 .v2ray-import-alt{{display:flex;gap:8px;margin-top:9px}}
 .v2ray-import-alt-btn{{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:transparent;border:1.5px solid rgba(16,185,129,.35);color:#059669;border-radius:11px;padding:9px 10px;font-family:inherit;font-size:10.5px;font-weight:700;cursor:pointer;text-decoration:none}}
 [data-theme="dark"] .v2ray-import-alt-btn{{color:#34D399}}
+.v2ray-import-steps{{display:flex;flex-direction:column;gap:7px;margin-top:11px;padding-top:11px;border-top:1px dashed rgba(16,185,129,.3)}}
+.v2ray-import-step{{display:flex;align-items:flex-start;gap:8px;font-size:10.5px;color:var(--t2);line-height:1.8}}
+.v2ray-import-step-n{{flex-shrink:0;width:17px;height:17px;border-radius:50%;background:#10B981;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:1px}}
 
 .stats-bar{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}}
 .stat-card{{background:var(--card);border:1px solid var(--card-b);border-radius:16px;padding:16px 17px;transition:.2s}}
@@ -2663,10 +2666,15 @@ function renderContent(d){{
 
       <div class="v2ray-import-box">
         <div class="v2ray-import-head"><i class="ti ti-bolt"></i> افزودن خودکار به نرم‌افزار V2Ray</div>
-        <div class="v2ray-import-sub">با یک لمس این ساب مستقیم داخل اپ نصب می‌شه؛ حجم باقی‌مانده و روزهای باقی‌مانده رو خودِ اپ نشون می‌ده و هر چند ساعت یک‌بار خودکار بروزرسانی می‌کنه.</div>
+        <div class="v2ray-import-sub">دکمه‌ی زیر ساب رو مستقیم داخل اپ اضافه می‌کنه. طبق رفتار خودِ v2rayNG، بعد از افزودن باید <b>یک‌بار</b> دستی «آپدیت» رو بزنی تا کانفیگ‌ها لود بشن (این محدودیت خودِ اپه، نه این پنل) — بعدش با روشن کردن آپدیت خودکار، دیگه لازم نیست دستی بزنی.</div>
         <a class="v2ray-import-btn" href="v2rayng://install-sub?url=${{encodeURIComponent(window._panelSubUrl)}}&name=${{encodeURIComponent(window._panelSubName)}}">
           <i class="ti ti-download"></i> افزودن خودکار (v2rayNG)
         </a>
+        <div class="v2ray-import-steps">
+          <div class="v2ray-import-step"><span class="v2ray-import-step-n">۱</span> دکمه‌ی بالا رو بزن تا اپ باز بشه و ساب اضافه بشه</div>
+          <div class="v2ray-import-step"><span class="v2ray-import-step-n">۲</span> داخل اپ، بالای صفحه یک‌بار روی آیکن «آپدیت / رفرش» بزن تا کانفیگ‌ها نمایش داده بشن</div>
+          <div class="v2ray-import-step"><span class="v2ray-import-step-n">۳</span> از منو، «تنظیمات ← بروزرسانی خودکار ساب» رو روشن کن؛ از اون به بعد هر چند ساعت خودش کانفیگ‌ها و حجم/روز باقی‌مانده رو بروز می‌کنه</div>
+        </div>
         <div class="v2ray-import-alt">
           <a class="v2ray-import-alt-btn" href="sn://subscription?url=${{encodeURIComponent(window._panelSubUrl)}}&name=${{encodeURIComponent(window._panelSubName)}}">
             <i class="ti ti-brand-windows"></i> NekoBox / v2rayN
@@ -2675,6 +2683,29 @@ function renderContent(d){{
             <i class="ti ti-clipboard-copy"></i> کپی برای ایمپورت دستی
           </button>
         </div>
+      </div>
+
+      <div class="v2ray-import-box" style="background:linear-gradient(120deg,rgba(59,124,246,.12) 0%,rgba(41,82,200,.06) 100%);border-color:rgba(59,124,246,.35)">
+        <div class="v2ray-import-head" style="color:var(--accent)"><i class="ti ti-apps"></i> اگه هنوز نرم‌افزار v2ray نصب نکردی</div>
+        <div class="v2ray-import-sub">اول اپ رو از استور رسمی گوشیت نصب کن، بعد از دکمه‌های بالا برای افزودن ساب استفاده کن.</div>
+        <div class="v2ray-import-alt" style="margin-top:0">
+          <a class="v2ray-import-alt-btn" style="border-color:rgba(59,124,246,.35);color:var(--accent)" target="_blank" href="https://play.google.com/store/apps/details?id=com.v2ray.ang">
+            <i class="ti ti-brand-google-play"></i> Google Play (اندروید)
+          </a>
+          <a class="v2ray-import-alt-btn" style="border-color:rgba(59,124,246,.35);color:var(--accent)" target="_blank" href="https://apps.apple.com/app/streisand/id6450534064">
+            <i class="ti ti-brand-apple"></i> App Store (آیفون)
+          </a>
+        </div>
+        <div class="cl" style="margin-top:10px"><i class="ti ti-info-circle"></i><span>گوگل‌پلی/اپ‌استور ممکنه بسته به منطقه‌ی گوشیت در دسترس نباشه؛ در اون صورت از باکس پایین (نسخه‌ی مستقیم/یونیورسال) استفاده کن.</span></div>
+      </div>
+
+      <div class="v2ray-import-box" style="background:linear-gradient(120deg,rgba(245,158,11,.12) 0%,rgba(217,119,6,.05) 100%);border-color:rgba(245,158,11,.35)">
+        <div class="v2ray-import-head" style="color:#D97706"><i class="ti ti-package"></i> دانلود مستقیم نسخه‌ی یونیورسال (بدون استور)</div>
+        <div class="v2ray-import-sub">اگه به گوگل‌پلی دسترسی نداری، نسخه‌ی یونیورسال v2rayNG (سازگار با همه‌ی گوشی‌های اندروید) رو مستقیم از گیت‌هاب پروژه دانلود کن.</div>
+        <a class="v2ray-import-btn" style="background:#D97706;box-shadow:0 8px 22px rgba(217,119,6,.32)" target="_blank" href="https://github.com/2dust/v2rayNG/releases/latest">
+          <i class="ti ti-brand-github"></i> دانلود از گیت‌هاب (v2rayNG)
+        </a>
+        <div class="cl" style="margin-top:10px"><i class="ti ti-info-circle"></i><span>از لیست فایل‌های آخرین ریلیز، فایلی که اسمش به <b>universal.apk</b>-ختم می‌شه رو انتخاب کن؛ روی همه‌ی گوشی‌های اندروید (هر معماری) نصب می‌شه.</span></div>
       </div>
     </div>
 
