@@ -1443,6 +1443,22 @@ a{color:inherit;text-decoration:none}
         <button class="btn btn-o" onclick="resetExpiredMessage()" style="padding:10px 16px"><i class="ti ti-restore"></i> پیش‌فرض</button>
       </div>
     </div>
+  <div class="srv-panel" style="margin-top:13px">
+    <div class="srv-hero">
+      <div class="srv-hero-icon"><i class="ti ti-world"></i></div>
+      <div class="srv-hero-text">
+        <div class="srv-hero-domain">دامین خروجی کانفیگ‌ها و ساب</div>
+        <div class="srv-hero-sub">اگه پشت دامین دلخواه (مثلاً کلادفلر برای جلوگیری از فیلتر) هستید، اینجا ست کنید تا همه‌ی لینک‌های کانفیگ و ساب همیشه روی همین دامین ساخته بشن — حتی اگه خودتون از آدرس رایلوی وارد پنل بشید</div>
+      </div>
+    </div>
+    <div style="padding:20px 24px 24px;display:flex;flex-direction:column;gap:12px">
+      <input class="modal-v2-input" id="settings-custom-domain" placeholder="مثلاً: yourname1.dpdns.org (خالی = تشخیص خودکار)" style="direction:ltr;text-align:left;font-family:ui-monospace,monospace">
+      <div class="cl"><i class="ti ti-info-circle"></i><span>فقط اسم دامین رو بدون <b>https://</b> و بدون اسلش وارد کنید. اگه دامین فیلتر شد، کافیه اینجا خالی‌ش کنید یا دامین جدید بذارید — نیازی به ری‌دیپلوی نیست.</span></div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-p" onclick="saveCustomDomain()" style="flex:1;justify-content:center;padding:10px"><i class="ti ti-device-floppy"></i> ذخیره دامین</button>
+        <button class="btn btn-o" onclick="clearCustomDomain()" style="padding:10px 16px"><i class="ti ti-restore"></i> تشخیص خودکار</button>
+      </div>
+    </div>
   </div>
 </section>
 <section class="pg" id="pg-support">
@@ -1563,7 +1579,7 @@ overlay.addEventListener('click',closeSb);
 function navTo(name){
   document.querySelectorAll('.nav-it').forEach(n=>n.classList.toggle('on',n.dataset.pg===name));
   document.querySelectorAll('.pg').forEach(p=>p.classList.toggle('on',p.id==='pg-'+name));
-  const loaders={links:loadLinks,connections:loadConns,errors:loadErrs,subscriptions:loadSubsPage,subgroups:loadSubs,logs:loadActivity,settings:loadExpiredMessage};
+  const loaders={links:loadLinks,connections:loadConns,errors:loadErrs,subscriptions:loadSubsPage,subgroups:loadSubs,logs:loadActivity,settings:loadSettingsPage};
   if(loaders[name])loaders[name]();
   closeSb();window.scrollTo({top:0,behavior:'smooth'});
 }
@@ -2174,12 +2190,13 @@ async function changePw(){
   }catch(e){toast('✗ '+e.message,'err')}
 }
 let expiredMsgDefault='';
-async function loadExpiredMessage(){
+async function loadSettingsPage(){
   try{
     const r=await authF('/api/settings');
     const d=await r.json();
     expiredMsgDefault=d.default_expired_message||'';
     document.getElementById('settings-expired-msg').value=d.expired_message||'';
+    document.getElementById('settings-custom-domain').value=d.custom_domain||'';
   }catch(e){toast('خطا در بارگذاری تنظیمات','err')}
 }
 async function saveExpiredMessage(){
@@ -2194,6 +2211,20 @@ async function saveExpiredMessage(){
 function resetExpiredMessage(){
   document.getElementById('settings-expired-msg').value=expiredMsgDefault;
   saveExpiredMessage();
+}
+async function saveCustomDomain(){
+  let val=document.getElementById('settings-custom-domain').value.trim();
+  val=val.replace(/^https?:\/\//i,'').replace(/\/+$/,'');
+  try{
+    const r=await authF('/api/settings',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({custom_domain:val})});
+    if(!r.ok)throw new Error();
+    document.getElementById('settings-custom-domain').value=val;
+    toast(val?'دامین خروجی ذخیره شد ✓':'برگشت به تشخیص خودکار ✓','ok');
+  }catch(e){toast('خطا در ذخیره دامین','err')}
+}
+function clearCustomDomain(){
+  document.getElementById('settings-custom-domain').value='';
+  saveCustomDomain();
 }
 async function downloadBackup(){
   try{
@@ -2414,12 +2445,20 @@ html,body{{min-height:100%;background:var(--bg);font-family:var(--serif);color:v
 .sub-eyebrow{{font-size:10px;font-weight:700;color:var(--accent2);text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px;display:flex;align-items:center;gap:6px}}
 .sub-eyebrow i{{font-size:13px}}
 .sub-name{{font-size:23px;font-weight:800;color:var(--t1);margin-bottom:6px;letter-spacing:-.02em}}
-.sub-desc{{font-size:12.5px;color:var(--t2);line-height:1.8;margin-bottom:10px}}
-.mini-circles-row{{display:flex;gap:14px;margin-bottom:16px}}
-.ring-circle{{width:76px;height:76px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background 1.2s ease}}
-.ring-inner{{width:60px;height:60px;border-radius:50%;background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;box-shadow:inset 0 0 0 1px var(--card-b)}}
-.ring-inner i{{font-size:15px}}
-.ring-val{{font-size:10.5px;font-weight:800;color:var(--t1);line-height:1.2;max-width:52px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.sub-desc{{font-size:12.5px;color:var(--t2);line-height:1.8}}
+.sub-head-row{{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap}}
+.sub-head-text{{flex:1;min-width:150px}}
+.mini-circles-row{{display:flex;gap:16px;flex-shrink:0}}
+.ring-circle{{width:92px;height:92px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background 1.2s ease}}
+.ring-inner{{width:74px;height:74px;border-radius:50%;background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;box-shadow:inset 0 0 0 1px var(--card-b)}}
+.ring-inner i{{font-size:19px}}
+.ring-val{{font-size:12.5px;font-weight:800;color:var(--t1);line-height:1.2;max-width:64px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+@media (max-width:460px){{
+  .ring-circle{{width:74px;height:74px}}
+  .ring-inner{{width:59px;height:59px}}
+  .ring-inner i{{font-size:15px}}
+  .ring-val{{font-size:10.5px;max-width:50px}}
+}}
 .sub-meta-row{{font-size:10.5px;color:var(--t3);margin-bottom:14px;display:flex;align-items:center;gap:6px}}
 .sub-sub-box{{background:var(--accent-d);border:1px solid var(--card-b);border-radius:13px;padding:12px 14px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}}
 .sub-sub-url{{font-family:ui-monospace,monospace;font-size:10px;color:var(--accent2);word-break:break-all;flex:1;min-width:140px}}
@@ -2692,10 +2731,13 @@ function renderContent(d){{
 
   document.getElementById('root').innerHTML=`
     <div class="sub-info">
-      <div class="sub-eyebrow"><i class="ti ti-folders"></i> گروه دسترسی</div>
-      <div class="sub-name">${{esc(d.name)}}</div>
-      ${{d.desc ? `<div class="sub-desc">${{esc(d.desc)}}</div>` : ''}}
-      <div class="mini-circles-row">
+      <div class="sub-head-row">
+        <div class="sub-head-text">
+          <div class="sub-eyebrow"><i class="ti ti-folders"></i> گروه دسترسی</div>
+          <div class="sub-name">${{esc(d.name)}}</div>
+          ${{d.desc ? `<div class="sub-desc">${{esc(d.desc)}}</div>` : ''}}
+        </div>
+        <div class="mini-circles-row">
         ${{(()=>{{
           // حجم باقی‌مانده
           let volPct=100, volColor='#10B981', volText='∞';
@@ -2728,6 +2770,7 @@ function renderContent(d){{
             </div>
           </div>`;
         }})()}}
+        </div>
       </div>
       <div class="sub-meta-row"><i class="ti ti-clock"></i> آخرین بروزرسانی: ${{new Date().toLocaleTimeString('fa-IR')}}</div>
       ${{(d.sub_active===false || d.sub_expired) ? `<div class="v2ray-import-box" style="background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);margin-top:0;margin-bottom:14px"><div class="v2ray-import-head" style="color:#EF4444"><i class="ti ti-alert-triangle"></i> ${{d.sub_active===false?'این گروه غیرفعال شده':'مهلت این گروه به پایان رسیده'}}</div><div class="v2ray-import-sub" style="margin-bottom:0">${{esc(d.expired_message)}}</div></div>` : (d.quota_exhausted ? `<div class="v2ray-import-box" style="background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);margin-top:0;margin-bottom:14px"><div class="v2ray-import-head" style="color:#EF4444"><i class="ti ti-alert-triangle"></i> حجم این گروه تمام شده</div><div class="v2ray-import-sub" style="margin-bottom:0">${{esc(d.expired_message)}}</div></div>` : '')}}

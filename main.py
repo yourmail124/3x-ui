@@ -121,7 +121,7 @@ SUBS: dict = {}
 SUBS_LOCK = asyncio.Lock()
 
 DEFAULT_EXPIRED_MESSAGE = "اعتبار زمانی یا حجم این کانفیگ تمام شده، لطفاً به پشتیبانی تماس بگیرید"
-SETTINGS: dict = {"expired_message": DEFAULT_EXPIRED_MESSAGE}
+SETTINGS: dict = {"expired_message": DEFAULT_EXPIRED_MESSAGE, "custom_domain": ""}
 SETTINGS_LOCK = asyncio.Lock()
 
 # پروتکل‌های پشتیبانی‌شده برای هر کانفیگ
@@ -218,10 +218,14 @@ async def shutdown():
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def get_host(request: Request | None = None) -> str:
-    """آدرس دامنه رو ترجیحاً از خودِ درخواست HTTP می‌گیره (هدر Host/X-Forwarded-Host)
-    چون این همیشه دقیقاً همون دامنه‌ایه که کاربر واقعاً بهش وصل شده. متغیر محیطی
-    RAILWAY_PUBLIC_DOMAIN فقط به‌عنوان fallback استفاده می‌شه، چون گاهی موقع بالا اومدن
-    کانتینر هنوز مقداردهی نشده و باعث می‌شد لینک‌ها گاهی با "localhost" ساخته بشن."""
+    """اگه یه دامین دستی تو تنظیمات پنل ست شده باشه (SETTINGS.custom_domain)، همیشه همون
+    برای ساخت لینک‌های کانفیگ/ساب استفاده می‌شه — مستقل از اینکه ادمین از چه دامنه‌ای وارد پنل شده.
+    این باعث می‌شه لینک‌های خروجی برای کاربر نهایی همیشه ثابت و روی همون دامین دلخواه (مثلاً پشت
+    کلادفلر برای جلوگیری از فیلترینگ) بمونن، حتی اگه خودِ ادمین از آدرس رایلوی وارد پنل بشه.
+    اگه دامین دستی ست نشده باشه، طبق روال قبل از هدر Host/X-Forwarded-Host درخواست استفاده می‌شه."""
+    custom = (SETTINGS.get("custom_domain") or "").strip()
+    if custom:
+        return custom
     if request is not None:
         h = request.headers.get("x-forwarded-host") or request.headers.get("host")
         if h:
@@ -527,16 +531,15 @@ async def health():
 # ── Subscription (single link) ────────────────────────────────────────────────
 @app.get("/sub/{uuid}")
 async def subscription_single(uuid: str, request: Request):
-    import base64
     async with LINKS_LOCK:
         link = LINKS.get(uuid)
     if not link or not is_link_allowed(link):
         raise HTTPException(status_code=404, detail="not found or inactive")
     host = get_host(request)
     vless = vless_link_for_link(link, uuid, host, dynamic_remark=True)
-    content = base64.b64encode(vless.encode()).decode()
+    # متن ساده (بدون base64) برمی‌گردونیم؛ برخلاف base64، همه‌ی نسخه‌های اندروید (حتی قدیمی‌ها) این فرمت رو می‌فهمن.
     return Response(
-        content=content, media_type="text/plain",
+        content=vless, media_type="text/plain",
         headers={
             "profile-title": quote(link["label"]),
             "profile-update-interval": "6",
@@ -548,7 +551,6 @@ async def subscription_single(uuid: str, request: Request):
 
 @app.get("/sub-all")
 async def subscription_all(request: Request, _=Depends(require_auth)):
-    import base64
     host = get_host(request)
     async with LINKS_LOCK:
         lines = [
@@ -556,8 +558,7 @@ async def subscription_all(request: Request, _=Depends(require_auth)):
             for uid, d in LINKS.items()
             if is_link_allowed(d)
         ]
-    content = base64.b64encode("\n".join(lines).encode()).decode()
-    return Response(content=content, media_type="text/plain")
+    return Response(content="\n".join(lines), media_type="text/plain")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SUB GROUP endpoints
@@ -806,7 +807,6 @@ async def assign_link_to_sub(sub_id: str, request: Request, _=Depends(require_au
 # ── Public sub-group subscription file ───────────────────────────────────────
 @app.get("/sub-group/{uuid_key}")
 async def sub_group_subscription(uuid_key: str, request: Request):
-    import base64
     async with SUBS_LOCK:
         sub = next((s for s in SUBS.values() if s.get("uuid_key") == uuid_key), None)
     if not sub:
@@ -829,9 +829,9 @@ async def sub_group_subscription(uuid_key: str, request: Request):
                 if is_link_allowed(link):
                     lines.append(vless_link_for_link(link, lid, host, dynamic_remark=True))
 
-    content = base64.b64encode("\n".join(lines).encode()).decode()
+    # متن ساده (بدون base64)؛ روی اندرویدهای قدیمی که base64 رو تو ساب پشتیبانی نمی‌کنن هم کار می‌کنه.
     return Response(
-        content=content,
+        content="\n".join(lines),
         media_type="text/plain",
         headers={
             "profile-title": quote(sub["name"]),
@@ -888,6 +888,8 @@ async def api_get_settings(_=Depends(require_auth)):
     return {
         "expired_message": SETTINGS.get("expired_message", DEFAULT_EXPIRED_MESSAGE),
         "default_expired_message": DEFAULT_EXPIRED_MESSAGE,
+        "custom_domain": SETTINGS.get("custom_domain", ""),
+        "detected_domain": os.environ.get("RAILWAY_PUBLIC_DOMAIN", CONFIG["host"]),
     }
 
 @app.patch("/api/settings")
@@ -897,9 +899,16 @@ async def api_update_settings(request: Request, _=Depends(require_auth)):
         if "expired_message" in body:
             msg = str(body["expired_message"]).strip()[:200]
             SETTINGS["expired_message"] = msg or DEFAULT_EXPIRED_MESSAGE
+        if "custom_domain" in body:
+            dom = str(body["custom_domain"]).strip().lower()
+            dom = re.sub(r"^https?://", "", dom).split("/")[0].split(":")[0]
+            SETTINGS["custom_domain"] = dom
     await save_state()
-    log_activity("settings", "پیام اتمام اعتبار بروزرسانی شد", "info")
-    return {"ok": True, "expired_message": SETTINGS["expired_message"]}
+    if "custom_domain" in body:
+        log_activity("settings", f"دامین خروجی {'روی «'+SETTINGS['custom_domain']+'» ست شد' if SETTINGS['custom_domain'] else 'به تشخیص خودکار برگشت'}", "info")
+    else:
+        log_activity("settings", "پیام اتمام اعتبار بروزرسانی شد", "info")
+    return {"ok": True, "expired_message": SETTINGS["expired_message"], "custom_domain": SETTINGS.get("custom_domain", "")}
 
 # ── Backup / Restore ──────────────────────────────────────────────────────────
 @app.get("/api/backup")
