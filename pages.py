@@ -1426,6 +1426,24 @@ a{color:inherit;text-decoration:none}
       </div>
     </div>
   </div>
+
+  <div class="srv-panel" style="margin-top:13px">
+    <div class="srv-hero">
+      <div class="srv-hero-icon"><i class="ti ti-message-exclamation"></i></div>
+      <div class="srv-hero-text">
+        <div class="srv-hero-domain">پیام اتمام اعتبار</div>
+        <div class="srv-hero-sub">وقتی حجم یا زمان یه کانفیگ/گروه تمام بشه، به‌جای حجم/روز باقی‌مانده، همین متن داخل اسم کانفیگ توی اپ v2ray نشون داده می‌شه</div>
+      </div>
+    </div>
+    <div style="padding:20px 24px 24px;display:flex;flex-direction:column;gap:12px">
+      <textarea class="modal-v2-input" id="settings-expired-msg" rows="2" maxlength="200" style="resize:vertical;font-family:inherit" placeholder="در حال بارگذاری..."></textarea>
+      <div class="cl"><i class="ti ti-info-circle"></i><span>حداکثر ۲۰۰ کاراکتر؛ همین متن برای همه‌ی کانفیگ‌ها و گروه‌های منقضی/تمام‌شده استفاده می‌شه.</span></div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-p" onclick="saveExpiredMessage()" style="flex:1;justify-content:center;padding:10px"><i class="ti ti-device-floppy"></i> ذخیره پیام</button>
+        <button class="btn btn-o" onclick="resetExpiredMessage()" style="padding:10px 16px"><i class="ti ti-restore"></i> پیش‌فرض</button>
+      </div>
+    </div>
+  </div>
 </section>
 <section class="pg" id="pg-support">
   <div class="topbar"><div><div class="tb-title"><i class="ti ti-headset"></i> پشتیبانی</div></div></div>
@@ -1545,7 +1563,7 @@ overlay.addEventListener('click',closeSb);
 function navTo(name){
   document.querySelectorAll('.nav-it').forEach(n=>n.classList.toggle('on',n.dataset.pg===name));
   document.querySelectorAll('.pg').forEach(p=>p.classList.toggle('on',p.id==='pg-'+name));
-  const loaders={links:loadLinks,connections:loadConns,errors:loadErrs,subscriptions:loadSubsPage,subgroups:loadSubs,logs:loadActivity};
+  const loaders={links:loadLinks,connections:loadConns,errors:loadErrs,subscriptions:loadSubsPage,subgroups:loadSubs,logs:loadActivity,settings:loadExpiredMessage};
   if(loaders[name])loaders[name]();
   closeSb();window.scrollTo({top:0,behavior:'smooth'});
 }
@@ -2155,6 +2173,28 @@ async function changePw(){
     ['cp-cur','cp-new','cp-cf'].forEach(id=>document.getElementById(id).value='');
   }catch(e){toast('✗ '+e.message,'err')}
 }
+let expiredMsgDefault='';
+async function loadExpiredMessage(){
+  try{
+    const r=await authF('/api/settings');
+    const d=await r.json();
+    expiredMsgDefault=d.default_expired_message||'';
+    document.getElementById('settings-expired-msg').value=d.expired_message||'';
+  }catch(e){toast('خطا در بارگذاری تنظیمات','err')}
+}
+async function saveExpiredMessage(){
+  const val=document.getElementById('settings-expired-msg').value.trim();
+  if(!val){toast('پیام نمی‌تواند خالی باشد','err');return;}
+  try{
+    const r=await authF('/api/settings',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({expired_message:val})});
+    if(!r.ok)throw new Error();
+    toast('پیام ذخیره شد ✓','ok');
+  }catch(e){toast('خطا در ذخیره پیام','err')}
+}
+function resetExpiredMessage(){
+  document.getElementById('settings-expired-msg').value=expiredMsgDefault;
+  saveExpiredMessage();
+}
 async function downloadBackup(){
   try{
     const r=await authF('/api/backup');
@@ -2375,10 +2415,11 @@ html,body{{min-height:100%;background:var(--bg);font-family:var(--serif);color:v
 .sub-eyebrow i{{font-size:13px}}
 .sub-name{{font-size:23px;font-weight:800;color:var(--t1);margin-bottom:6px;letter-spacing:-.02em}}
 .sub-desc{{font-size:12.5px;color:var(--t2);line-height:1.8;margin-bottom:10px}}
-.mini-circles-row{{display:flex;gap:10px;margin-bottom:14px}}
-.mini-circle{{width:54px;height:54px;border-radius:50%;background:var(--accent-d);border:1.5px solid var(--card-b);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;flex-shrink:0}}
-.mini-circle i{{font-size:12px;color:var(--accent)}}
-.mini-circle span{{font-size:8.5px;font-weight:800;color:var(--t1);line-height:1.2;max-width:46px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.mini-circles-row{{display:flex;gap:14px;margin-bottom:16px}}
+.ring-circle{{width:76px;height:76px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background 1.2s ease}}
+.ring-inner{{width:60px;height:60px;border-radius:50%;background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;box-shadow:inset 0 0 0 1px var(--card-b)}}
+.ring-inner i{{font-size:15px}}
+.ring-val{{font-size:10.5px;font-weight:800;color:var(--t1);line-height:1.2;max-width:52px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .sub-meta-row{{font-size:10.5px;color:var(--t3);margin-bottom:14px;display:flex;align-items:center;gap:6px}}
 .sub-sub-box{{background:var(--accent-d);border:1px solid var(--card-b);border-radius:13px;padding:12px 14px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}}
 .sub-sub-url{{font-family:ui-monospace,monospace;font-size:10px;color:var(--accent2);word-break:break-all;flex:1;min-width:140px}}
@@ -2655,17 +2696,41 @@ function renderContent(d){{
       <div class="sub-name">${{esc(d.name)}}</div>
       ${{d.desc ? `<div class="sub-desc">${{esc(d.desc)}}</div>` : ''}}
       <div class="mini-circles-row">
-        <div class="mini-circle" title="حجم باقی‌مانده">
-          <i class="ti ti-database"></i>
-          <span>${{d.quota_bytes>0?toFa(esc(d.remaining_fmt)):'∞'}}</span>
-        </div>
-        <div class="mini-circle" title="روز باقی‌مانده">
-          <i class="ti ti-calendar-time"></i>
-          <span>${{d.expires_at?toFa(Math.max(0,Math.ceil((new Date(d.expires_at)-new Date())/86400000)))+' روز':'∞'}}</span>
-        </div>
+        ${{(()=>{{
+          // حجم باقی‌مانده
+          let volPct=100, volColor='#10B981', volText='∞';
+          if(d.quota_bytes>0){{
+            volPct=Math.max(0,Math.min(100,(d.remaining_bytes/d.quota_bytes)*100));
+            volColor = volPct>50 ? '#10B981' : (volPct>20 ? '#F59E0B' : '#EF4444');
+            volText = toFa(d.remaining_fmt);
+          }}
+          // زمان باقی‌مانده
+          let timePct=100, timeColor='#10B981', timeText='∞';
+          if(d.expires_at){{
+            const now=Date.now(), exp=new Date(d.expires_at).getTime(), created=d.created_at?new Date(d.created_at).getTime():now;
+            const total=Math.max(1,exp-created), left=Math.max(0,exp-now);
+            timePct=Math.max(0,Math.min(100,(left/total)*100));
+            timeColor = timePct>50 ? '#10B981' : (timePct>20 ? '#F59E0B' : '#EF4444');
+            const daysLeft=Math.max(0,Math.ceil(left/86400000));
+            timeText=toFa(daysLeft)+' روز';
+          }}
+          return `
+          <div class="ring-circle" style="background:conic-gradient(${{volColor}} ${{volPct*3.6}}deg, var(--card-b) 0deg)" title="حجم باقی‌مانده">
+            <div class="ring-inner">
+              <i class="ti ti-database" style="color:${{volColor}}"></i>
+              <span class="ring-val">${{esc(volText)}}</span>
+            </div>
+          </div>
+          <div class="ring-circle" style="background:conic-gradient(${{timeColor}} ${{timePct*3.6}}deg, var(--card-b) 0deg)" title="روز باقی‌مانده">
+            <div class="ring-inner">
+              <i class="ti ti-calendar-time" style="color:${{timeColor}}"></i>
+              <span class="ring-val">${{esc(timeText)}}</span>
+            </div>
+          </div>`;
+        }})()}}
       </div>
       <div class="sub-meta-row"><i class="ti ti-clock"></i> آخرین بروزرسانی: ${{new Date().toLocaleTimeString('fa-IR')}}</div>
-      ${{(d.sub_active===false || d.sub_expired) ? `<div class="v2ray-import-box" style="background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);margin-top:0;margin-bottom:14px"><div class="v2ray-import-head" style="color:#EF4444"><i class="ti ti-alert-triangle"></i> ${{d.sub_active===false?'این گروه غیرفعال شده':'مهلت این گروه به پایان رسیده'}}</div><div class="v2ray-import-sub" style="margin-bottom:0">کانفیگ‌های این گروه فعلاً کار نمی‌کنن. برای فعال‌سازی مجدد با مدیر پنل هماهنگ کن.</div></div>` : ''}}
+      ${{(d.sub_active===false || d.sub_expired) ? `<div class="v2ray-import-box" style="background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);margin-top:0;margin-bottom:14px"><div class="v2ray-import-head" style="color:#EF4444"><i class="ti ti-alert-triangle"></i> ${{d.sub_active===false?'این گروه غیرفعال شده':'مهلت این گروه به پایان رسیده'}}</div><div class="v2ray-import-sub" style="margin-bottom:0">${{esc(d.expired_message)}}</div></div>` : (d.quota_exhausted ? `<div class="v2ray-import-box" style="background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);margin-top:0;margin-bottom:14px"><div class="v2ray-import-head" style="color:#EF4444"><i class="ti ti-alert-triangle"></i> حجم این گروه تمام شده</div><div class="v2ray-import-sub" style="margin-bottom:0">${{esc(d.expired_message)}}</div></div>` : '')}}
       <div class="sub-sub-box">
         <span class="sub-sub-url">${{esc(subUrl)}}</span>
         <button class="btn btn-pur" style="padding:7px 12px;font-size:10.5px"

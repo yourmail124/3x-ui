@@ -80,6 +80,7 @@ async def load_state():
             SUBS.update(data.get("subs", {}))
             if "password_hash" in data:
                 AUTH["password_hash"] = data["password_hash"]
+            SETTINGS.update(data.get("settings", {}))
             logger.info(f"State loaded: {len(LINKS)} links, {len(SUBS)} subs")
     except Exception as e:
         logger.warning(f"Could not load state: {e}")
@@ -92,6 +93,7 @@ async def save_state():
                 "links": dict(LINKS),
                 "subs": dict(SUBS),
                 "password_hash": AUTH["password_hash"],
+                "settings": dict(SETTINGS),
                 "saved_at": datetime.now().isoformat(),
             }
             tmp = DATA_FILE.with_suffix(".tmp")
@@ -117,6 +119,10 @@ LINKS: dict = {}
 LINKS_LOCK = asyncio.Lock()
 SUBS: dict = {}
 SUBS_LOCK = asyncio.Lock()
+
+DEFAULT_EXPIRED_MESSAGE = "اعتبار زمانی یا حجم این کانفیگ تمام شده، لطفاً به پشتیبانی تماس بگیرید"
+SETTINGS: dict = {"expired_message": DEFAULT_EXPIRED_MESSAGE}
+SETTINGS_LOCK = asyncio.Lock()
 
 # پروتکل‌های پشتیبانی‌شده برای هر کانفیگ
 PROTOCOLS = ("vless-ws", "xhttp-packet-up", "xhttp-stream-up", "xhttp-stream-one")
@@ -305,22 +311,38 @@ def format_days_left(expires_at: str | None) -> str | None:
 
 def build_config_remark(link: dict) -> str:
     """اسم نمایشی کانفیگ داخل اپ v2ray: اسم پایه (بدون پسوند پروتکل) + حجم باقی‌مانده + روز باقی‌مانده (فارسی).
-    اگه کانفیگ عضو یه گروه با کوتای/انقضای مشترک باشه، از وضعیت گروه استفاده می‌شه، وگرنه از خود کانفیگ."""
+    اگه کانفیگ عضو یه گروه با کوتای/انقضای مشترک باشه، از وضعیت گروه استفاده می‌شه، وگرنه از خود کانفیگ.
+    اگه حجم یا زمان تموم شده باشه، به‌جای حجم/روز، پیام اتمام اعتبار (قابل‌تنظیم از تنظیمات پنل) نشون داده می‌شه."""
     base = (link.get("label") or "Config").strip()
     sub_id = link.get("sub_id")
     sub = SUBS.get(sub_id) if sub_id else None
+    exhausted = False
 
     if sub and sub.get("quota_bytes", 0) > 0:
         remaining = max(0, sub["quota_bytes"] - sub_group_used_bytes(sub_id))
+        if remaining <= 0:
+            exhausted = True
         vol_part = fmt_bytes_fa(remaining) + " مانده"
     elif link.get("limit_bytes", 0) > 0:
         remaining = max(0, link["limit_bytes"] - link.get("used_bytes", 0))
+        if remaining <= 0:
+            exhausted = True
         vol_part = fmt_bytes_fa(remaining) + " مانده"
     else:
         vol_part = "حجم نامحدود"
 
     exp = (sub.get("expires_at") if sub else None) or link.get("expires_at")
+    if exp:
+        try:
+            if datetime.now() > datetime.fromisoformat(exp):
+                exhausted = True
+        except Exception:
+            pass
     day_part = format_days_left(exp)
+
+    if exhausted:
+        msg = SETTINGS.get("expired_message", DEFAULT_EXPIRED_MESSAGE)
+        return f"{base} | {msg}"
 
     parts = [base, vol_part] + ([day_part] if day_part else [])
     return " | ".join(parts)
@@ -861,6 +883,24 @@ async def api_change_password(request: Request, token=Depends(require_auth)):
     log_activity("auth", "رمز عبور پنل تغییر کرد", "ok")
     return {"ok": True}
 
+@app.get("/api/settings")
+async def api_get_settings(_=Depends(require_auth)):
+    return {
+        "expired_message": SETTINGS.get("expired_message", DEFAULT_EXPIRED_MESSAGE),
+        "default_expired_message": DEFAULT_EXPIRED_MESSAGE,
+    }
+
+@app.patch("/api/settings")
+async def api_update_settings(request: Request, _=Depends(require_auth)):
+    body = await request.json()
+    async with SETTINGS_LOCK:
+        if "expired_message" in body:
+            msg = str(body["expired_message"]).strip()[:200]
+            SETTINGS["expired_message"] = msg or DEFAULT_EXPIRED_MESSAGE
+    await save_state()
+    log_activity("settings", "پیام اتمام اعتبار بروزرسانی شد", "info")
+    return {"ok": True, "expired_message": SETTINGS["expired_message"]}
+
 # ── Backup / Restore ──────────────────────────────────────────────────────────
 @app.get("/api/backup")
 async def api_backup(_=Depends(require_auth)):
@@ -1389,6 +1429,7 @@ async def public_sub_data(uuid_key: str, request: Request):
     quota_bytes = sub.get("quota_bytes", 0)
     sub_active = sub.get("active", True)
     sub_expired = is_sub_expired(sub)
+    quota_exhausted = quota_bytes > 0 and total_used >= quota_bytes
     return {
         "locked": False,
         "name": sub["name"],
@@ -1403,7 +1444,10 @@ async def public_sub_data(uuid_key: str, request: Request):
         "remaining_fmt": "∞" if quota_bytes == 0 else fmt_bytes(max(0, quota_bytes - total_used)),
         "sub_active": sub_active,
         "sub_expired": sub_expired,
+        "quota_exhausted": quota_exhausted,
+        "expired_message": SETTINGS.get("expired_message", DEFAULT_EXPIRED_MESSAGE),
         "expires_at": sub.get("expires_at"),
+        "created_at": sub.get("created_at"),
         "links": links_out,
     }
 
