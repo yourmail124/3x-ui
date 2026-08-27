@@ -2374,7 +2374,11 @@ html,body{{min-height:100%;background:var(--bg);font-family:var(--serif);color:v
 .sub-eyebrow{{font-size:10px;font-weight:700;color:var(--accent2);text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px;display:flex;align-items:center;gap:6px}}
 .sub-eyebrow i{{font-size:13px}}
 .sub-name{{font-size:23px;font-weight:800;color:var(--t1);margin-bottom:6px;letter-spacing:-.02em}}
-.sub-desc{{font-size:12.5px;color:var(--t2);line-height:1.8;margin-bottom:14px}}
+.sub-desc{{font-size:12.5px;color:var(--t2);line-height:1.8;margin-bottom:10px}}
+.mini-circles-row{{display:flex;gap:10px;margin-bottom:14px}}
+.mini-circle{{width:54px;height:54px;border-radius:50%;background:var(--accent-d);border:1.5px solid var(--card-b);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;flex-shrink:0}}
+.mini-circle i{{font-size:12px;color:var(--accent)}}
+.mini-circle span{{font-size:8.5px;font-weight:800;color:var(--t1);line-height:1.2;max-width:46px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .sub-meta-row{{font-size:10.5px;color:var(--t3);margin-bottom:14px;display:flex;align-items:center;gap:6px}}
 .sub-sub-box{{background:var(--accent-d);border:1px solid var(--card-b);border-radius:13px;padding:12px 14px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}}
 .sub-sub-url{{font-family:ui-monospace,monospace;font-size:10px;color:var(--accent2);word-break:break-all;flex:1;min-width:140px}}
@@ -2650,6 +2654,16 @@ function renderContent(d){{
       <div class="sub-eyebrow"><i class="ti ti-folders"></i> گروه دسترسی</div>
       <div class="sub-name">${{esc(d.name)}}</div>
       ${{d.desc ? `<div class="sub-desc">${{esc(d.desc)}}</div>` : ''}}
+      <div class="mini-circles-row">
+        <div class="mini-circle" title="حجم باقی‌مانده">
+          <i class="ti ti-database"></i>
+          <span>${{d.quota_bytes>0?toFa(esc(d.remaining_fmt)):'∞'}}</span>
+        </div>
+        <div class="mini-circle" title="روز باقی‌مانده">
+          <i class="ti ti-calendar-time"></i>
+          <span>${{d.expires_at?toFa(Math.max(0,Math.ceil((new Date(d.expires_at)-new Date())/86400000)))+' روز':'∞'}}</span>
+        </div>
+      </div>
       <div class="sub-meta-row"><i class="ti ti-clock"></i> آخرین بروزرسانی: ${{new Date().toLocaleTimeString('fa-IR')}}</div>
       ${{(d.sub_active===false || d.sub_expired) ? `<div class="v2ray-import-box" style="background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);margin-top:0;margin-bottom:14px"><div class="v2ray-import-head" style="color:#EF4444"><i class="ti ti-alert-triangle"></i> ${{d.sub_active===false?'این گروه غیرفعال شده':'مهلت این گروه به پایان رسیده'}}</div><div class="v2ray-import-sub" style="margin-bottom:0">کانفیگ‌های این گروه فعلاً کار نمی‌کنن. برای فعال‌سازی مجدد با مدیر پنل هماهنگ کن.</div></div>` : ''}}
       <div class="sub-sub-box">
@@ -2700,12 +2714,10 @@ function renderContent(d){{
       </div>
 
       <div class="v2ray-import-box" style="background:linear-gradient(120deg,rgba(245,158,11,.12) 0%,rgba(217,119,6,.05) 100%);border-color:rgba(245,158,11,.35)">
-        <div class="v2ray-import-head" style="color:#D97706"><i class="ti ti-package"></i> دانلود مستقیم نسخه‌ی یونیورسال (بدون استور)</div>
-        <div class="v2ray-import-sub">اگه به گوگل‌پلی دسترسی نداری، نسخه‌ی یونیورسال v2rayNG (سازگار با همه‌ی گوشی‌های اندروید) رو مستقیم از گیت‌هاب پروژه دانلود کن.</div>
-        <a class="v2ray-import-btn" style="background:#D97706;box-shadow:0 8px 22px rgba(217,119,6,.32)" target="_blank" href="https://github.com/2dust/v2rayNG/releases/latest">
-          <i class="ti ti-brand-github"></i> دانلود از گیت‌هاب (v2rayNG)
+        <div class="v2ray-import-head" style="color:#D97706"><i class="ti ti-package"></i> دانلود مستقیم v2rayNG (بدون استور)</div>
+        <a class="v2ray-import-btn" id="v2rayng-direct-dl" style="background:#D97706;box-shadow:0 8px 22px rgba(217,119,6,.32)" href="https://github.com/2dust/v2rayNG/releases/download/2.2.6/v2rayNG_2.2.6_arm64-v8a.apk">
+          <i class="ti ti-brand-github"></i> دانلود مستقیم APK (اندروید)
         </a>
-        <div class="cl" style="margin-top:10px"><i class="ti ti-info-circle"></i><span>از لیست فایل‌های آخرین ریلیز، فایلی که اسمش به <b>universal.apk</b>-ختم می‌شه رو انتخاب کن؛ روی همه‌ی گوشی‌های اندروید (هر معماری) نصب می‌شه.</span></div>
       </div>
     </div>
 

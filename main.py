@@ -280,17 +280,31 @@ def generate_vless_link(
     query = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
     return f"vless://{uuid}@{host}:{port_val}?{query}#{quote(remark)}"
 
+FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+
+def fa_num(s) -> str:
+    return str(s).translate(FA_DIGITS)
+
+def fmt_bytes_fa(b: int) -> str:
+    if b < 1024:
+        return fa_num(b) + " بایت"
+    if b < 1024 ** 2:
+        return fa_num(f"{b/1024:.1f}") + " کیلوبایت"
+    if b < 1024 ** 3:
+        return fa_num(f"{b/1024**2:.2f}") + " مگابایت"
+    return fa_num(f"{b/1024**3:.2f}") + " گیگابایت"
+
 def format_days_left(expires_at: str | None) -> str | None:
     if not expires_at:
         return None
     try:
         days = max(0, (datetime.fromisoformat(expires_at) - datetime.now()).days)
-        return f"{days}d left"
+        return fa_num(days) + " روز مانده"
     except Exception:
         return None
 
 def build_config_remark(link: dict) -> str:
-    """اسم نمایشی کانفیگ داخل اپ v2ray: اسم پایه (بدون پسوند پروتکل) + حجم باقی‌مانده + روز باقی‌مانده.
+    """اسم نمایشی کانفیگ داخل اپ v2ray: اسم پایه (بدون پسوند پروتکل) + حجم باقی‌مانده + روز باقی‌مانده (فارسی).
     اگه کانفیگ عضو یه گروه با کوتای/انقضای مشترک باشه، از وضعیت گروه استفاده می‌شه، وگرنه از خود کانفیگ."""
     base = (link.get("label") or "Config").strip()
     sub_id = link.get("sub_id")
@@ -298,12 +312,12 @@ def build_config_remark(link: dict) -> str:
 
     if sub and sub.get("quota_bytes", 0) > 0:
         remaining = max(0, sub["quota_bytes"] - sub_group_used_bytes(sub_id))
-        vol_part = fmt_bytes(remaining) + " left"
+        vol_part = fmt_bytes_fa(remaining) + " مانده"
     elif link.get("limit_bytes", 0) > 0:
         remaining = max(0, link["limit_bytes"] - link.get("used_bytes", 0))
-        vol_part = fmt_bytes(remaining) + " left"
+        vol_part = fmt_bytes_fa(remaining) + " مانده"
     else:
-        vol_part = "∞"
+        vol_part = "حجم نامحدود"
 
     exp = (sub.get("expires_at") if sub else None) or link.get("expires_at")
     day_part = format_days_left(exp)
