@@ -1459,6 +1459,31 @@ a{color:inherit;text-decoration:none}
         <button class="btn btn-o" onclick="clearCustomDomain()" style="padding:10px 16px"><i class="ti ti-restore"></i> تشخیص خودکار</button>
       </div>
     </div>
+  <div class="srv-panel" style="margin-top:13px">
+    <div class="srv-hero">
+      <div class="srv-hero-icon"><i class="ti ti-route"></i></div>
+      <div class="srv-hero-text">
+        <div class="srv-hero-domain">پروکسی ضدفیلتر (Railway TCP Proxy)</div>
+        <div class="srv-hero-sub">آدرس و پورتی که رایلوی تو بخش «Connect to your service over TCP» می‌ده رو اینجا ثبت کنید. کانفیگ‌هایی که تو ویزارد ساخت گروه، مسیرشون رو «پروکسی» انتخاب کنید، به‌جای دامین، مستقیم از همین آدرس/پورت استفاده می‌کنن — یه مسیر جایگزین که به دامین وابسته نیست</div>
+      </div>
+    </div>
+    <div style="padding:20px 24px 24px;display:flex;flex-direction:column;gap:12px">
+      <div class="cp-row" style="margin-bottom:0">
+        <div class="cp-block">
+          <div class="cp-block-label"><i class="ti ti-server"></i> آدرس پروکسی</div>
+          <input class="modal-v2-input" id="settings-proxy-addr" placeholder="مثلاً: altaria.proxy.rlwy.net" style="direction:ltr;text-align:left;font-family:ui-monospace,monospace">
+        </div>
+        <div class="cp-block">
+          <div class="cp-block-label"><i class="ti ti-plug"></i> پورت پروکسی</div>
+          <input class="modal-v2-input" id="settings-proxy-port" type="number" min="1" max="65535" placeholder="مثلاً: 39052" style="direction:ltr;text-align:left">
+        </div>
+      </div>
+      <div class="cl"><i class="ti ti-info-circle"></i><span>این آدرس بدون TLS (رمزنگاری خام) کار می‌کنه چون پروکسی TCP خودِ رایلوی گواهی SSL رو ترمینیت نمی‌کنه؛ کانفیگ‌های این مسیر خودکار با <b>security=none</b> ساخته می‌شن.</span></div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-p" onclick="saveProxySettings()" style="flex:1;justify-content:center;padding:10px"><i class="ti ti-device-floppy"></i> ذخیره پروکسی</button>
+        <button class="btn btn-o" onclick="clearProxySettings()" style="padding:10px 16px"><i class="ti ti-trash"></i> پاک کردن</button>
+      </div>
+    </div>
   </div>
 </section>
 <section class="pg" id="pg-support">
@@ -1857,7 +1882,11 @@ function nsProtoSettingsCard(proto){
   const label=NS_PROTO_LABELS[proto]||proto;
   return `<div class="cp-block mb16" id="ns-set-${proto}" data-proto="${proto}">
     <div class="cp-block-label"><i class="ti ti-adjustments"></i> تنظیمات اختصاصی ${label}</div>
-    <input class="modal-v2-input" id="ns-set-${proto}-label" placeholder="اسم این کانفیگ (اختیاری)" style="margin-bottom:8px">
+    <input class="modal-v2-input" id="ns-set-${proto}-label" placeholder="اسم این کانفیگ (اختیاری) — کنار حجم/زمان باقی‌مانده نشون داده می‌شه" style="margin-bottom:8px">
+    <div class="chip-row" style="margin-bottom:8px">
+      <span class="chip active" data-route="domain" onclick="setNsRoute('${proto}','domain',this)"><i class="ti ti-world" style="font-size:11px"></i> دامنه اصلی</span>
+      <span class="chip" data-route="proxy" onclick="setNsRoute('${proto}','proxy',this)"><i class="ti ti-route" style="font-size:11px"></i> پروکسی ضدفیلتر (Railway)</span>
+    </div>
     <select class="modal-v2-input fs" id="ns-set-${proto}-alpn-preset" onchange="onNsAlpnChange('${proto}')">
       <option value="">ALPN: پیش‌فرض پروتکل</option>
       <option value="h2,http/1.1">h2,http/1.1</option>
@@ -1867,6 +1896,12 @@ function nsProtoSettingsCard(proto){
     </select>
     <input class="modal-v2-input" id="ns-set-${proto}-alpn" placeholder="مقدار دستی ALPN" style="display:none;margin-top:8px">
   </div>`;
+}
+function setNsRoute(proto,route,el){
+  const card=document.getElementById('ns-set-'+proto);
+  card.querySelectorAll('.chip[data-route]').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  card.dataset.route=route;
 }
 function onNsAlpnChange(proto){
   const p=document.getElementById('ns-set-'+proto+'-alpn-preset').value;
@@ -1924,10 +1959,11 @@ async function createSub(){
     const customLabel=document.getElementById('ns-set-'+proto+'-label')?.value.trim();
     const alpnPreset=document.getElementById('ns-set-'+proto+'-alpn-preset')?.value||'';
     const alpn=alpnPreset==='__custom__'?(document.getElementById('ns-set-'+proto+'-alpn')?.value.trim()||''):alpnPreset;
+    const route=document.getElementById('ns-set-'+proto)?.dataset.route||'domain';
     return {
       protocol:proto,
       label: customLabel || name,
-      fingerprint,port,ip_limit,speed_limit_value,speed_limit_unit,alpn,
+      fingerprint,port,ip_limit,speed_limit_value,speed_limit_unit,alpn,route,
     };
   });
   try{
@@ -2197,6 +2233,8 @@ async function loadSettingsPage(){
     expiredMsgDefault=d.default_expired_message||'';
     document.getElementById('settings-expired-msg').value=d.expired_message||'';
     document.getElementById('settings-custom-domain').value=d.custom_domain||'';
+    document.getElementById('settings-proxy-addr').value=d.proxy_address||'';
+    document.getElementById('settings-proxy-port').value=d.proxy_port||'';
   }catch(e){toast('خطا در بارگذاری تنظیمات','err')}
 }
 async function saveExpiredMessage(){
@@ -2225,6 +2263,22 @@ async function saveCustomDomain(){
 function clearCustomDomain(){
   document.getElementById('settings-custom-domain').value='';
   saveCustomDomain();
+}
+async function saveProxySettings(){
+  let addr=document.getElementById('settings-proxy-addr').value.trim();
+  addr=addr.replace(/^https?:\/\//i,'').replace(/\/+$/,'');
+  const port=parseInt(document.getElementById('settings-proxy-port').value)||0;
+  try{
+    const r=await authF('/api/settings',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({proxy_address:addr,proxy_port:port})});
+    if(!r.ok)throw new Error();
+    document.getElementById('settings-proxy-addr').value=addr;
+    toast(addr&&port?'پروکسی ذخیره شد ✓':'پروکسی پاک شد ✓','ok');
+  }catch(e){toast('خطا در ذخیره پروکسی','err')}
+}
+function clearProxySettings(){
+  document.getElementById('settings-proxy-addr').value='';
+  document.getElementById('settings-proxy-port').value='';
+  saveProxySettings();
 }
 async function downloadBackup(){
   try{

@@ -121,7 +121,7 @@ SUBS: dict = {}
 SUBS_LOCK = asyncio.Lock()
 
 DEFAULT_EXPIRED_MESSAGE = "اعتبار زمانی یا حجم این کانفیگ تمام شده، لطفاً به پشتیبانی تماس بگیرید"
-SETTINGS: dict = {"expired_message": DEFAULT_EXPIRED_MESSAGE, "custom_domain": ""}
+SETTINGS: dict = {"expired_message": DEFAULT_EXPIRED_MESSAGE, "custom_domain": "", "proxy_address": "", "proxy_port": 0}
 SETTINGS_LOCK = asyncio.Lock()
 
 # پروتکل‌های پشتیبانی‌شده برای هر کانفیگ
@@ -249,9 +249,13 @@ def generate_vless_link(
     fingerprint: str | None = None,
     alpn: str | None = None,
     port: int | None = None,
+    address: str | None = None,
+    security: str | None = None,
 ) -> str:
     """می‌سازد VLESS share-link متناسب با پروتکل انتخاب‌شده (WS کلاسیک یا یکی از مدهای XHTTP).
-    fingerprint / alpn / port در صورت ندادن، از پیش‌فرض‌های خود پروتکل استفاده می‌شوند."""
+    fingerprint / alpn / port در صورت ندادن، از پیش‌فرض‌های خود پروتکل استفاده می‌شوند.
+    address: آدرس واقعی که کلاینت بهش وصل می‌شه (اگه با host فرق کنه، مثلاً پروکسی TCP ریلوی).
+    security: 'tls' (پیش‌فرض) یا 'none' — پروکسی خام TCP ریلوی خودش TLS رو ترمینیت نمی‌کنه، پس باید none باشه."""
     fp = (fingerprint or DEFAULT_FINGERPRINT).strip() or DEFAULT_FINGERPRINT
     if fp not in FINGERPRINTS:
         fp = DEFAULT_FINGERPRINT
@@ -259,36 +263,40 @@ def generate_vless_link(
     port_val = port or DEFAULT_PORT
     if not (MIN_PORT <= port_val <= MAX_PORT):
         port_val = DEFAULT_PORT
+    addr_val = address or host
+    sec_val = security or "tls"
 
     if protocol == "vless-ws":
         path = f"/ws/{uuid}"
         params = {
             "encryption": "none",
-            "security": "tls",
+            "security": sec_val,
             "type": "ws",
             "host": host,
             "path": path,
-            "sni": host,
             "fp": fp,
-            "alpn": alpn_val,
         }
+        if sec_val == "tls":
+            params["sni"] = host
+            params["alpn"] = alpn_val
     else:
         # xhttp-packet-up / xhttp-stream-up / xhttp-stream-one
         mode = protocol.replace("xhttp-", "")  # packet-up | stream-up | stream-one
         path = f"/xhttp-siz10/{mode}/{uuid}"
         params = {
             "encryption": "none",
-            "security": "tls",
+            "security": sec_val,
             "type": "xhttp",
             "mode": mode,
             "host": host,
             "path": path,
-            "sni": host,
             "fp": fp,
-            "alpn": alpn_val,
         }
+        if sec_val == "tls":
+            params["sni"] = host
+            params["alpn"] = alpn_val
     query = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
-    return f"vless://{uuid}@{host}:{port_val}?{query}#{quote(remark)}"
+    return f"vless://{uuid}@{addr_val}:{port_val}?{query}#{quote(remark)}"
 
 FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
 
@@ -354,9 +362,24 @@ def build_config_remark(link: dict) -> str:
 def vless_link_for_link(link: dict, uid: str, host: str, dynamic_remark: bool = False) -> str:
     """generate_vless_link رو با تنظیمات دستی همون کانفیگ (fingerprint/alpn/port) صدا می‌زنه.
     وقتی dynamic_remark=True باشه (برای سرو کردن ساب داخل اپ v2ray)، به‌جای اسم خام،
-    اسم + حجم باقی‌مانده + روز باقی‌مانده به‌عنوان remark ساخته می‌شه."""
+    اسم + حجم باقی‌مانده + روز باقی‌مانده به‌عنوان remark ساخته می‌شه.
+    اگه link['route']=='proxy' باشه و پروکسی TCP ریلوی تو تنظیمات ست شده باشه، آدرس/پورت کانفیگ
+    از رو همون پروکسی ساخته می‌شه (بدون TLS، چون Railway TCP Proxy خودش TLS رو ترمینیت نمی‌کنه)."""
     proto = link.get("protocol", DEFAULT_PROTOCOL)
     remark = build_config_remark(link) if dynamic_remark else (link.get('label') or "Config")
+    proxy_addr = SETTINGS.get("proxy_address") or ""
+    proxy_port = SETTINGS.get("proxy_port") or 0
+    if link.get("route") == "proxy" and proxy_addr and proxy_port:
+        return generate_vless_link(
+            uid, host,
+            remark=remark,
+            protocol=proto,
+            fingerprint=link.get("fingerprint"),
+            alpn=link.get("alpn"),
+            port=proxy_port,
+            address=proxy_addr,
+            security="none",
+        )
     return generate_vless_link(
         uid, host,
         remark=remark,
@@ -662,6 +685,7 @@ async def bulk_create_sub(request: Request, _=Depends(require_auth)):
             port=port,
             ip_limit=ip_limit,
             speed_limit_bytes=speed_limit_bytes,
+            route=it.get("route") or "domain",
         )
         created.append({"uuid": uid, **link})
 
@@ -890,6 +914,8 @@ async def api_get_settings(_=Depends(require_auth)):
         "default_expired_message": DEFAULT_EXPIRED_MESSAGE,
         "custom_domain": SETTINGS.get("custom_domain", ""),
         "detected_domain": os.environ.get("RAILWAY_PUBLIC_DOMAIN", CONFIG["host"]),
+        "proxy_address": SETTINGS.get("proxy_address", ""),
+        "proxy_port": SETTINGS.get("proxy_port", 0),
     }
 
 @app.patch("/api/settings")
@@ -903,12 +929,30 @@ async def api_update_settings(request: Request, _=Depends(require_auth)):
             dom = str(body["custom_domain"]).strip().lower()
             dom = re.sub(r"^https?://", "", dom).split("/")[0].split(":")[0]
             SETTINGS["custom_domain"] = dom
+        if "proxy_address" in body:
+            addr = str(body["proxy_address"]).strip().lower()
+            addr = re.sub(r"^https?://", "", addr).split("/")[0].split(":")[0]
+            SETTINGS["proxy_address"] = addr
+        if "proxy_port" in body:
+            try:
+                p = int(body["proxy_port"] or 0)
+            except (TypeError, ValueError):
+                p = 0
+            SETTINGS["proxy_port"] = p if 0 < p <= 65535 else 0
     await save_state()
     if "custom_domain" in body:
         log_activity("settings", f"دامین خروجی {'روی «'+SETTINGS['custom_domain']+'» ست شد' if SETTINGS['custom_domain'] else 'به تشخیص خودکار برگشت'}", "info")
+    elif "proxy_address" in body or "proxy_port" in body:
+        log_activity("settings", f"پروکسی TCP ریلوی {'روی «'+SETTINGS['proxy_address']+':'+str(SETTINGS['proxy_port'])+'» ست شد' if SETTINGS['proxy_address'] and SETTINGS['proxy_port'] else 'پاک شد'}", "info")
     else:
         log_activity("settings", "پیام اتمام اعتبار بروزرسانی شد", "info")
-    return {"ok": True, "expired_message": SETTINGS["expired_message"], "custom_domain": SETTINGS.get("custom_domain", "")}
+    return {
+        "ok": True,
+        "expired_message": SETTINGS["expired_message"],
+        "custom_domain": SETTINGS.get("custom_domain", ""),
+        "proxy_address": SETTINGS.get("proxy_address", ""),
+        "proxy_port": SETTINGS.get("proxy_port", 0),
+    }
 
 # ── Backup / Restore ──────────────────────────────────────────────────────────
 @app.get("/api/backup")
@@ -1064,6 +1108,7 @@ async def make_link(
     port: int = DEFAULT_PORT,
     ip_limit: int = 0,
     speed_limit_bytes: int = 0,
+    route: str = "domain",
 ) -> tuple[str, dict]:
     if protocol not in PROTOCOLS:
         protocol = DEFAULT_PROTOCOL
@@ -1072,6 +1117,8 @@ async def make_link(
         fingerprint = DEFAULT_FINGERPRINT
     if not (MIN_PORT <= port <= MAX_PORT):
         port = DEFAULT_PORT
+    if route not in ("domain", "proxy"):
+        route = "domain"
     uid = generate_uuid()
     async with LINKS_LOCK:
         LINKS[uid] = {
@@ -1090,6 +1137,7 @@ async def make_link(
             "port": port,
             "ip_limit": max(0, ip_limit),
             "speed_limit_bytes": max(0, speed_limit_bytes),
+            "route": route,
         }
     if sub_id:
         async with SUBS_LOCK:
@@ -1223,6 +1271,7 @@ async def create_link(request: Request, _=Depends(require_auth)):
         port=port,
         ip_limit=ip_limit,
         speed_limit_bytes=speed_limit_bytes,
+        route=body.get("route") or "domain",
     )
 
     host = get_host(request)
@@ -1291,6 +1340,9 @@ async def update_link(uid: str, request: Request, _=Depends(require_auth)):
             except (TypeError, ValueError):
                 p = DEFAULT_PORT
             link["port"] = p if (MIN_PORT <= p <= MAX_PORT) else DEFAULT_PORT
+        if "route" in body:
+            rt = str(body.get("route") or "domain")
+            link["route"] = rt if rt in ("domain", "proxy") else "domain"
         if "ip_limit" in body:
             try:
                 il = int(body.get("ip_limit") or 0)
