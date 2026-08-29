@@ -578,7 +578,7 @@ async def subscription_all(request: Request, _=Depends(require_auth)):
     host = get_host(request)
     async with LINKS_LOCK:
         lines = [
-            vless_link_for_link(d, uid, host)
+            vless_link_for_link(d, uid, host, dynamic_remark=True)
             for uid, d in LINKS.items()
             if is_link_allowed(d)
         ]
@@ -1280,7 +1280,7 @@ async def create_link(request: Request, _=Depends(require_auth)):
         "uuid": uid,
         **link,
         "expired": False,
-        "vless_link": vless_link_for_link(link, uid, host),
+        "vless_link": vless_link_for_link(link, uid, host, dynamic_remark=True),
         "sub_url": f"https://{host}/sub/{uid}",
     }
 
@@ -1297,7 +1297,7 @@ async def list_links(request: Request, _=Depends(require_auth)):
             **d,
             "protocol": proto,
             "expired": is_link_expired(d),
-            "vless_link": vless_link_for_link(d, uid, host),
+            "vless_link": vless_link_for_link(d, uid, host, dynamic_remark=True),
             "sub_url": f"https://{host}/sub/{uid}",
             "connected_ips": len(unique_ips_for_uuid(uid)),
         })
@@ -1480,7 +1480,7 @@ async def public_sub_data(uuid_key: str, request: Request):
             "limit_bytes": link.get("limit_bytes", 0),
             "limit_fmt": "∞" if link.get("limit_bytes", 0) == 0 else fmt_bytes(link["limit_bytes"]),
             "expires_at": link.get("expires_at"),
-            "vless_link": vless_link_for_link(link, lid, host),
+            "vless_link": vless_link_for_link(link, lid, host, dynamic_remark=True),
             "sub_url": f"https://{host}/sub/{lid}",
             "connections": conn_count,
             "ip_limit": link.get("ip_limit", 0),
