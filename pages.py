@@ -2661,6 +2661,16 @@ html,body{{min-height:100%;background:var(--bg);font-family:var(--serif);color:v
 .v2ray-import-step{{display:flex;align-items:flex-start;gap:8px;font-size:10.5px;color:var(--t2);line-height:1.8}}
 .v2ray-import-step-n{{flex-shrink:0;width:17px;height:17px;border-radius:50%;background:#10B981;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:1px}}
 
+.exp-popup-bg{{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px;animation:fadeIn .2s ease}}
+@keyframes fadeIn{{from{{opacity:0}}to{{opacity:1}}}}
+.exp-popup-card{{background:var(--card);border:1.5px solid rgba(239,68,68,.35);border-radius:22px;padding:26px 24px 22px;max-width:340px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4);position:relative}}
+.exp-popup-close{{position:absolute;top:12px;left:12px;width:28px;height:28px;border-radius:50%;background:var(--card-b);border:none;color:var(--t2);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px}}
+.exp-popup-icon{{width:56px;height:56px;border-radius:50%;background:rgba(239,68,68,.12);color:#EF4444;display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 14px}}
+.exp-popup-title{{font-size:14.5px;font-weight:800;color:var(--t1);margin-bottom:8px}}
+.exp-popup-msg{{font-size:11.5px;color:var(--t2);line-height:1.9;margin-bottom:18px}}
+.exp-popup-btn{{display:flex;align-items:center;justify-content:center;gap:8px;background:#229ED9;color:#fff;border:none;border-radius:13px;padding:13px 18px;font-family:inherit;font-size:13px;font-weight:800;cursor:pointer;text-decoration:none;width:100%;box-shadow:0 8px 22px rgba(34,158,217,.32);transition:.18s}}
+.exp-popup-btn:hover{{background:#1B87BD;transform:translateY(-1px)}}
+
 .stats-bar{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}}
 .stat-card{{background:var(--card);border:1px solid var(--card-b);border-radius:16px;padding:16px 17px;transition:.2s}}
 .stat-card:hover{{border-color:var(--card-bh);transform:translateY(-1px)}}
@@ -2838,6 +2848,27 @@ function protoChip(p){{
   return '<span class="proto-chip pc-ws">VLESS · WS</span>';
 }}
 
+let expPopupShown=false;
+function showExpiredPopup(message){{
+  if(expPopupShown)return;
+  expPopupShown=true;
+  const bg=document.createElement('div');
+  bg.className='exp-popup-bg';
+  bg.id='exp-popup-bg';
+  bg.innerHTML=`
+    <div class="exp-popup-card">
+      <button class="exp-popup-close" onclick="document.getElementById('exp-popup-bg').remove()"><i class="ti ti-x"></i></button>
+      <div class="exp-popup-icon"><i class="ti ti-alert-triangle"></i></div>
+      <div class="exp-popup-title">اعتبار این سرویس تمام شده</div>
+      <div class="exp-popup-msg">${{esc(message)}}</div>
+      <a class="exp-popup-btn" href="https://t.me/sajjad123sh" target="_blank" rel="noopener">
+        <i class="ti ti-brand-telegram"></i> پیام به پشتیبانی در تلگرام
+      </a>
+    </div>`;
+  bg.addEventListener('click',e=>{{if(e.target===bg)bg.remove();}});
+  document.body.appendChild(bg);
+}}
+
 function showQR(label,link){{
   document.getElementById('qr-label').textContent=label;
   document.getElementById('qr-img').src='https://api.qrserver.com/v1/create-qr-code/?size=260x260&data='+encodeURIComponent(link);
@@ -2957,8 +2988,7 @@ function renderContent(d){{
         </div>
       </div>
       <div class="sub-meta-row"><i class="ti ti-clock"></i> آخرین بروزرسانی: ${{new Date().toLocaleTimeString('fa-IR')}}</div>
-      ${{(d.sub_active===false || d.sub_expired) ? `<div class="v2ray-import-box" style="background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);margin-top:0;margin-bottom:14px"><div class="v2ray-import-head" style="color:#EF4444"><i class="ti ti-alert-triangle"></i> ${{d.sub_active===false?'این گروه غیرفعال شده':'مهلت این گروه به پایان رسیده'}}</div><div class="v2ray-import-sub" style="margin-bottom:0">${{esc(d.expired_message)}}</div></div>` : (d.quota_exhausted ? `<div class="v2ray-import-box" style="background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);margin-top:0;margin-bottom:14px"><div class="v2ray-import-head" style="color:#EF4444"><i class="ti ti-alert-triangle"></i> حجم این گروه تمام شده</div><div class="v2ray-import-sub" style="margin-bottom:0">${{esc(d.expired_message)}}</div></div>` : '')}}
-      <div class="sub-sub-box">
+      ${{(d.sub_active===false || d.sub_expired) ? `<div class="v2ray-import-box" style="background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);margin-top:0;margin-bottom:14px"><div class="v2ray-import-head" style="color:#EF4444"><i class="ti ti-alert-triangle"></i> ${{d.sub_active===false?'این گروه غیرفعال شده':'مهلت این گروه به پایان رسیده'}}</div><div class="v2ray-import-sub" style="margin-bottom:0">${{esc(d.expired_message)}}</div></div>` : (d.quota_exhausted ? `<div class="v2ray-import-box" style="background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);margin-top:0;margin-bottom:14px"><div class="v2ray-import-head" style="color:#EF4444"><i class="ti ti-alert-triangle"></i> حجم این گروه تمام شده</div><div class="v2ray-import-sub" style="margin-bottom:0">${{esc(d.expired_message)}}</div></div>` : '')}}      <div class="sub-sub-box">
         <span class="sub-sub-url">${{esc(subUrl)}}</span>
         <button class="btn btn-pur" style="padding:7px 12px;font-size:10.5px"
           onclick="navigator.clipboard.writeText(window._panelSubUrl).then(()=>toast('لینک ساب کپی شد ✓','ok'))">
@@ -3092,6 +3122,9 @@ function renderContent(d){{
       }}).join('')}}
     </div>
   `;
+  if(d.sub_active===false || d.sub_expired || d.quota_exhausted){{
+    showExpiredPopup(d.expired_message);
+  }}
   setTimeout(() => autoRefresh(), 30000);
 }}
 
