@@ -670,9 +670,11 @@ async def bulk_create_sub(request: Request, _=Depends(require_auth)):
         }
 
     created = []
-    total_variants = sum(1 + len(it.get("clean_ips") or []) for it in items)
+    total_variants = sum((1 if it.get("include_base", True) else 0) + len(it.get("clean_ips") or []) for it in items)
     if total_variants > 40:
         raise HTTPException(status_code=400, detail="مجموع کانفیگ‌ها (پروتکل × آی‌پی‌های تمیز) از ۴۰ بیشتر شد")
+    if total_variants == 0:
+        raise HTTPException(status_code=400, detail="حداقل یک کانفیگ (مسیر پایه یا آی‌پی تمیز) لازم است")
     for it in items:
         try:
             sv = float(it.get("speed_limit_value") or 0)
@@ -689,21 +691,26 @@ async def bulk_create_sub(request: Request, _=Depends(require_auth)):
         except (TypeError, ValueError):
             port = DEFAULT_PORT
         base_label = it.get("label") or f"{name} - {it.get('protocol','')}"
-        uid, link = await make_link(
-            label=base_label,
-            limit_bytes=0,  # کوتا سطح گروهه، نه تک‌تک لینک‌ها
-            expires_at=None,
-            note="",
-            sub_id=sub_id,
-            protocol=it.get("protocol") or DEFAULT_PROTOCOL,
-            fingerprint=it.get("fingerprint") or DEFAULT_FINGERPRINT,
-            alpn=it.get("alpn") or "",
-            port=port,
-            ip_limit=ip_limit,
-            speed_limit_bytes=speed_limit_bytes,
-            route=it.get("route") or "domain",
-        )
-        created.append({"uuid": uid, **link})
+
+        # مسیر پایه (دامنه/پروکسی) فقط وقتی ساخته می‌شه که include_base=True باشه (پیش‌فرض True برای
+        # سازگاری با درخواست‌های قدیمی)؛ اگه کاربر فقط بخواد از آی‌پی‌های تمیز استفاده کنه، می‌تونه
+        # این رو غیرفعال کنه و اصلاً کانفیگ پایه ساخته نشه.
+        if it.get("include_base", True):
+            uid, link = await make_link(
+                label=base_label,
+                limit_bytes=0,  # کوتا سطح گروهه، نه تک‌تک لینک‌ها
+                expires_at=None,
+                note="",
+                sub_id=sub_id,
+                protocol=it.get("protocol") or DEFAULT_PROTOCOL,
+                fingerprint=it.get("fingerprint") or DEFAULT_FINGERPRINT,
+                alpn=it.get("alpn") or "",
+                port=port,
+                ip_limit=ip_limit,
+                speed_limit_bytes=speed_limit_bytes,
+                route=it.get("route") or "domain",
+            )
+            created.append({"uuid": uid, **link})
 
         # به ازای هر آی‌پی تمیزی که برای این پروتکل تیک خورده، یه کانفیگ جدای دیگه (همون پروتکل و
         # تنظیمات، فقط با آدرس اتصال = همون آی‌پی) هم به همین گروه اضافه می‌شه؛ چون تو همون گروهه،

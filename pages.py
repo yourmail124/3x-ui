@@ -1937,7 +1937,11 @@ function nsProtoSettingsCard(proto){
   const label=NS_PROTO_LABELS[proto]||proto;
   const cleanIpsHtml = allCleanIps.length ? `
     <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--card-b)">
-      <div style="font-size:10.5px;color:var(--t3);margin-bottom:7px"><i class="ti ti-list-check"></i> علاوه بر مسیر بالا، از این آی‌پی‌های تمیز هم کانفیگ جدا بساز:</div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:11px;cursor:pointer;margin-bottom:9px;font-weight:700">
+        <input type="checkbox" class="ns-base-chk" data-proto="${proto}" checked onchange="onNsBaseToggle('${proto}',this)" style="accent-color:var(--accent)">
+        <span>یک کانفیگ هم روی مسیر بالا (دامنه/پروکسی) بساز</span>
+      </label>
+      <div style="font-size:10.5px;color:var(--t3);margin-bottom:7px"><i class="ti ti-list-check"></i> و/یا از این آی‌پی‌های تمیز، کانفیگ جدا بساز (می‌تونی فقط همینا رو تیک بزنی، بدون مسیر بالا):</div>
       <div style="display:flex;flex-direction:column;gap:6px">
         ${allCleanIps.map(x=>`
           <label style="display:flex;align-items:center;gap:8px;font-size:11px;cursor:pointer">
@@ -1967,6 +1971,12 @@ function nsProtoSettingsCard(proto){
     <input class="modal-v2-input" id="ns-set-${proto}-alpn" placeholder="مقدار دستی ALPN" style="display:none;margin-top:8px">
     ${cleanIpsHtml}
   </div>`;
+}
+function onNsBaseToggle(proto,el){
+  const card=document.getElementById('ns-set-'+proto);
+  const routeRow=card.querySelector('.chip-row');
+  if(routeRow)routeRow.style.opacity=el.checked?'1':'.35';
+  card.querySelectorAll('.chip[data-route]').forEach(c=>c.style.pointerEvents=el.checked?'auto':'none');
 }
 function setNsRoute(proto,route,el){
   const card=document.getElementById('ns-set-'+proto);
@@ -2026,19 +2036,24 @@ async function createSub(){
   const ip_limit=parseInt(document.getElementById('ns-iplimit').value)||0;
   const speed_limit_value=parseFloat(document.getElementById('ns-speed').value)||0;
   const speed_limit_unit=document.getElementById('ns-speed-unit').value;
+  let invalidProto=null;
   const links=[...nsSelectedProtos].map(proto=>{
     const customLabel=document.getElementById('ns-set-'+proto+'-label')?.value.trim();
     const alpnPreset=document.getElementById('ns-set-'+proto+'-alpn-preset')?.value||'';
     const alpn=alpnPreset==='__custom__'?(document.getElementById('ns-set-'+proto+'-alpn')?.value.trim()||''):alpnPreset;
     const route=document.getElementById('ns-set-'+proto)?.dataset.route||'domain';
     const clean_ips=[...document.querySelectorAll(`.ns-cleanip-chk[data-proto="${proto}"]:checked`)].map(c=>c.value);
+    const baseChk=document.querySelector(`.ns-base-chk[data-proto="${proto}"]`);
+    const include_base = baseChk ? baseChk.checked : true;
+    if(!include_base && clean_ips.length===0) invalidProto=NS_PROTO_LABELS[proto]||proto;
     return {
       protocol:proto,
       label: customLabel || name,
-      fingerprint,port,ip_limit,speed_limit_value,speed_limit_unit,alpn,route,clean_ips,
+      fingerprint,port,ip_limit,speed_limit_value,speed_limit_unit,alpn,route,clean_ips,include_base,
     };
   });
-  const totalConfigs=links.reduce((n,l)=>n+1+(l.clean_ips?.length||0),0);
+  if(invalidProto){toast('برای «'+invalidProto+'» یا مسیر پایه رو نگه دار یا حداقل یه آی‌پی تمیز تیک بزن','err');return;}
+  const totalConfigs=links.reduce((n,l)=>n+(l.include_base?1:0)+(l.clean_ips?.length||0),0);
   try{
     const r=await authF('/api/subs/bulk-create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,desc,password:pw,quota_value,quota_unit,expires_days,links})});
     const d=await r.json().catch(()=>({}));
