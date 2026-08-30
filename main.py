@@ -122,7 +122,7 @@ SUBS: dict = {}
 SUBS_LOCK = asyncio.Lock()
 
 DEFAULT_EXPIRED_MESSAGE = "اعتبار زمانی یا حجم این کانفیگ تمام شده، لطفاً به پشتیبانی تماس بگیرید"
-SETTINGS: dict = {"expired_message": DEFAULT_EXPIRED_MESSAGE, "custom_domain": "", "proxy_address": "", "proxy_port": 0}
+SETTINGS: dict = {"expired_message": DEFAULT_EXPIRED_MESSAGE, "custom_domain": "", "proxy_address": "", "proxy_port": 0, "clean_ips": []}
 SETTINGS_LOCK = asyncio.Lock()
 
 # پروتکل‌های پشتیبانی‌شده برای هر کانفیگ
@@ -364,23 +364,34 @@ def vless_link_for_link(link: dict, uid: str, host: str, dynamic_remark: bool = 
     """generate_vless_link رو با تنظیمات دستی همون کانفیگ (fingerprint/alpn/port) صدا می‌زنه.
     وقتی dynamic_remark=True باشه (برای سرو کردن ساب داخل اپ v2ray)، به‌جای اسم خام،
     اسم + حجم باقی‌مانده + روز باقی‌مانده به‌عنوان remark ساخته می‌شه.
-    اگه link['route']=='proxy' باشه و پروکسی TCP ریلوی تو تنظیمات ست شده باشه، آدرس/پورت کانفیگ
-    از رو همون پروکسی ساخته می‌شه (بدون TLS، چون Railway TCP Proxy خودش TLS رو ترمینیت نمی‌کنه)."""
+    link['route'] سه حالت داره:
+      - 'domain'   : پیش‌فرض؛ آدرس و TLS/SNI هر دو رو دامنه‌ی خودش می‌سازه.
+      - 'proxy'    : آدرس/پورت از پروکسی TCP ریلوی؛ چون خودِ پروکسی TLS رو ترمینیت نمی‌کنه، security=none.
+      - 'clean_ip' : آدرس، آی‌پی تمیزیه که تو تنظیمات ذخیره شده (link['clean_ip'])، ولی TLS/SNI/Host
+                     همچنان دامنه‌ی خودش می‌مونه (چون این آی‌پی‌ها پشت کلادفلرن و روتینگ لبه‌ی کلادفلر
+                     بر اساس SNI انجام می‌شه، نه IP)."""
     proto = link.get("protocol", DEFAULT_PROTOCOL)
     remark = build_config_remark(link) if dynamic_remark else (link.get('label') or "Config")
-    proxy_addr = SETTINGS.get("proxy_address") or ""
-    proxy_port = SETTINGS.get("proxy_port") or 0
-    if link.get("route") == "proxy" and proxy_addr and proxy_port:
-        return generate_vless_link(
-            uid, host,
-            remark=remark,
-            protocol=proto,
-            fingerprint=link.get("fingerprint"),
-            alpn=link.get("alpn"),
-            port=proxy_port,
-            address=proxy_addr,
-            security="none",
-        )
+    route = link.get("route", "domain")
+
+    if route == "proxy":
+        proxy_addr = SETTINGS.get("proxy_address") or ""
+        proxy_port = SETTINGS.get("proxy_port") or 0
+        if proxy_addr and proxy_port:
+            return generate_vless_link(
+                uid, host, remark=remark, protocol=proto,
+                fingerprint=link.get("fingerprint"), alpn=link.get("alpn"),
+                port=proxy_port, address=proxy_addr, security="none",
+            )
+    elif route == "clean_ip":
+        clean_ip = (link.get("clean_ip") or "").strip()
+        if clean_ip:
+            return generate_vless_link(
+                uid, host, remark=remark, protocol=proto,
+                fingerprint=link.get("fingerprint"), alpn=link.get("alpn"),
+                port=link.get("port"), address=clean_ip, security="tls",
+            )
+
     return generate_vless_link(
         uid, host,
         remark=remark,
@@ -659,6 +670,9 @@ async def bulk_create_sub(request: Request, _=Depends(require_auth)):
         }
 
     created = []
+    total_variants = sum(1 + len(it.get("clean_ips") or []) for it in items)
+    if total_variants > 40:
+        raise HTTPException(status_code=400, detail="مجموع کانفیگ‌ها (پروتکل × آی‌پی‌های تمیز) از ۴۰ بیشتر شد")
     for it in items:
         try:
             sv = float(it.get("speed_limit_value") or 0)
@@ -674,8 +688,9 @@ async def bulk_create_sub(request: Request, _=Depends(require_auth)):
             port = int(it.get("port") or DEFAULT_PORT)
         except (TypeError, ValueError):
             port = DEFAULT_PORT
+        base_label = it.get("label") or f"{name} - {it.get('protocol','')}"
         uid, link = await make_link(
-            label=it.get("label") or f"{name} - {it.get('protocol','')}",
+            label=base_label,
             limit_bytes=0,  # کوتا سطح گروهه، نه تک‌تک لینک‌ها
             expires_at=None,
             note="",
@@ -689,6 +704,31 @@ async def bulk_create_sub(request: Request, _=Depends(require_auth)):
             route=it.get("route") or "domain",
         )
         created.append({"uuid": uid, **link})
+
+        # به ازای هر آی‌پی تمیزی که برای این پروتکل تیک خورده، یه کانفیگ جدای دیگه (همون پروتکل و
+        # تنظیمات، فقط با آدرس اتصال = همون آی‌پی) هم به همین گروه اضافه می‌شه؛ چون تو همون گروهه،
+        # حجم/زمانش با بقیه‌ی کانفیگ‌های گروه مشترکه.
+        clean_ips = it.get("clean_ips") or []
+        for idx, ip in enumerate(clean_ips, start=1):
+            ip = str(ip).strip()
+            if not ip:
+                continue
+            uid2, link2 = await make_link(
+                label=f"{base_label} · IP {idx}",
+                limit_bytes=0,
+                expires_at=None,
+                note="",
+                sub_id=sub_id,
+                protocol=it.get("protocol") or DEFAULT_PROTOCOL,
+                fingerprint=it.get("fingerprint") or DEFAULT_FINGERPRINT,
+                alpn=it.get("alpn") or "",
+                port=port,
+                ip_limit=ip_limit,
+                speed_limit_bytes=speed_limit_bytes,
+                route="clean_ip",
+                clean_ip=ip,
+            )
+            created.append({"uuid": uid2, **link2})
 
     log_activity("sub", f"گروه «{name}» با {len(created)} کانفیگ و حجم مشترک {fmt_bytes(quota_bytes) if quota_bytes else '∞'} ساخته شد", "ok")
     host = get_host(request)
@@ -917,7 +957,39 @@ async def api_get_settings(_=Depends(require_auth)):
         "detected_domain": os.environ.get("RAILWAY_PUBLIC_DOMAIN", CONFIG["host"]),
         "proxy_address": SETTINGS.get("proxy_address", ""),
         "proxy_port": SETTINGS.get("proxy_port", 0),
+        "clean_ips": SETTINGS.get("clean_ips", []),
     }
+
+@app.post("/api/settings/clean-ips")
+async def add_clean_ip(request: Request, _=Depends(require_auth)):
+    body = await request.json()
+    ip = str(body.get("ip") or "").strip()
+    label = str(body.get("label") or "").strip()[:40]
+    if not ip:
+        raise HTTPException(status_code=400, detail="آی‌پی نمی‌تواند خالی باشد")
+    ip_re = re.compile(r"^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-fA-F:]+$")
+    if not ip_re.match(ip):
+        raise HTTPException(status_code=400, detail="فرمت آی‌پی نامعتبر است")
+    async with SETTINGS_LOCK:
+        ips = SETTINGS.setdefault("clean_ips", [])
+        if any(x["ip"] == ip for x in ips):
+            raise HTTPException(status_code=400, detail="این آی‌پی قبلاً اضافه شده")
+        ips.append({"ip": ip, "label": label or ip})
+    await save_state()
+    log_activity("settings", f"آی‌پی تمیز «{ip}» اضافه شد", "info")
+    return {"ok": True, "clean_ips": SETTINGS["clean_ips"]}
+
+@app.delete("/api/settings/clean-ips/{ip}")
+async def delete_clean_ip(ip: str, _=Depends(require_auth)):
+    async with SETTINGS_LOCK:
+        ips = SETTINGS.setdefault("clean_ips", [])
+        before = len(ips)
+        SETTINGS["clean_ips"] = [x for x in ips if x["ip"] != ip]
+        if len(SETTINGS["clean_ips"]) == before:
+            raise HTTPException(status_code=404, detail="آی‌پی پیدا نشد")
+    await save_state()
+    log_activity("settings", f"آی‌پی تمیز «{ip}» حذف شد", "info")
+    return {"ok": True, "clean_ips": SETTINGS["clean_ips"]}
 
 @app.patch("/api/settings")
 async def api_update_settings(request: Request, _=Depends(require_auth)):
@@ -1110,6 +1182,7 @@ async def make_link(
     ip_limit: int = 0,
     speed_limit_bytes: int = 0,
     route: str = "domain",
+    clean_ip: str = "",
 ) -> tuple[str, dict]:
     if protocol not in PROTOCOLS:
         protocol = DEFAULT_PROTOCOL
@@ -1118,7 +1191,7 @@ async def make_link(
         fingerprint = DEFAULT_FINGERPRINT
     if not (MIN_PORT <= port <= MAX_PORT):
         port = DEFAULT_PORT
-    if route not in ("domain", "proxy"):
+    if route not in ("domain", "proxy", "clean_ip"):
         route = "domain"
     uid = generate_uuid()
     async with LINKS_LOCK:
@@ -1139,6 +1212,7 @@ async def make_link(
             "ip_limit": max(0, ip_limit),
             "speed_limit_bytes": max(0, speed_limit_bytes),
             "route": route,
+            "clean_ip": (clean_ip or "").strip()[:64],
         }
     if sub_id:
         async with SUBS_LOCK:
@@ -1275,6 +1349,32 @@ async def create_link(request: Request, _=Depends(require_auth)):
         route=body.get("route") or "domain",
     )
 
+    # اگه یک یا چند آی‌پی تمیز هم انتخاب شده باشه، به ازای هرکدوم یه کانفیگ مستقل دیگه (با همون
+    # تنظیمات، فقط آدرس = همون آی‌پی) هم ساخته می‌شه؛ همه تو همون گروهی که کانفیگ اصلی توشه (اگه بود).
+    extra_created = []
+    clean_ips = body.get("clean_ips") or []
+    base_label = body.get("label") or "لینک جدید"
+    for idx, ip in enumerate(clean_ips, start=1):
+        ip = str(ip).strip()
+        if not ip:
+            continue
+        uid2, link2 = await make_link(
+            label=f"{base_label} · IP {idx}",
+            limit_bytes=limit_bytes,
+            expires_at=expires_at,
+            note=body.get("note") or "",
+            sub_id=body.get("sub_id") or None,
+            protocol=body.get("protocol") or DEFAULT_PROTOCOL,
+            fingerprint=body.get("fingerprint") or DEFAULT_FINGERPRINT,
+            alpn=body.get("alpn") or "",
+            port=port,
+            ip_limit=ip_limit,
+            speed_limit_bytes=speed_limit_bytes,
+            route="clean_ip",
+            clean_ip=ip,
+        )
+        extra_created.append({"uuid": uid2, **link2})
+
     host = get_host(request)
     return {
         "uuid": uid,
@@ -1282,6 +1382,12 @@ async def create_link(request: Request, _=Depends(require_auth)):
         "expired": False,
         "vless_link": vless_link_for_link(link, uid, host, dynamic_remark=True),
         "sub_url": f"https://{host}/sub/{uid}",
+        "extra_links": [
+            {**e, "vless_link": vless_link_for_link(
+                {k: v for k, v in e.items() if k != "uuid"}, e["uuid"], host, dynamic_remark=True
+            ), "sub_url": f"https://{host}/sub/{e['uuid']}"}
+            for e in extra_created
+        ],
     }
 
 @app.get("/api/links")

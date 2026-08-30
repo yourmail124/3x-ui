@@ -1164,6 +1164,10 @@ a{color:inherit;text-decoration:none}
           </div>
         </div>
       </div>
+      <div class="cp-block mb16" id="nl-cleanips-block" style="display:none">
+        <div class="cp-block-label"><i class="ti ti-list-check"></i> همچنین از این آی‌پی‌های تمیز هم کانفیگ جدا بساز</div>
+        <div id="nl-cleanips-list" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
       <div class="cp-footer">
         <div class="cp-footer-note"><i class="ti ti-info-circle"></i> UUID کاملاً رندوم تولید می‌شود · فقط UUID‌های ثبت‌شده اجازه اتصال دارند · پروتکل پس از ساخت قابل تغییر نیست.</div>
         <button class="cp-submit-btn" onclick="createLink()"><i class="ti ti-link-plus"></i> ساخت کانفیگ</button>
@@ -1178,7 +1182,7 @@ a{color:inherit;text-decoration:none}
     <div><div class="tb-title"><i class="ti ti-folders"></i> گروه‌های ساب</div><div class="tb-sub">هر گروه یک صفحه پابلیک مجزا با کانفیگ‌های خودش دارد</div></div>
     <div class="tb-right">
       <span class="badge bg-purple" id="subs-pg-cnt">۰ گروه</span>
-      <button class="btn btn-pur" onclick="openModal('modal-create-sub')"><i class="ti ti-folder-plus"></i> گروه جدید</button>
+      <button class="btn btn-pur" onclick="openCreateSubModal()"><i class="ti ti-folder-plus"></i> گروه جدید</button>
     </div>
   </div>
   <div class="subs-toolbar">
@@ -1485,6 +1489,30 @@ a{color:inherit;text-decoration:none}
       </div>
     </div>
   </div>
+
+  <div class="srv-panel" style="margin-top:13px">
+    <div class="srv-hero">
+      <div class="srv-hero-icon"><i class="ti ti-list-check"></i></div>
+      <div class="srv-hero-text">
+        <div class="srv-hero-domain">آی‌پی‌های تمیز (Clean IP)</div>
+        <div class="srv-hero-sub">آی‌پی‌هایی که تشخیص دادید پشت کلادفلر تمیز و بدون فیلترن رو اینجا ذخیره کنید. موقع ساخت گروه یا کانفیگ تکی می‌تونید هرکدوم رو تیک بزنید تا یه کانفیگ جدا با همون آی‌پی (و SNI دامنه‌ی خودتون) هم ساخته بشه</div>
+      </div>
+    </div>
+    <div style="padding:20px 24px 24px;display:flex;flex-direction:column;gap:12px">
+      <div class="cp-row" style="margin-bottom:0">
+        <div class="cp-block" style="flex:1.4">
+          <div class="cp-block-label"><i class="ti ti-server-2"></i> آی‌پی</div>
+          <input class="modal-v2-input" id="settings-clean-ip-val" placeholder="مثلاً: 172.67.10.25" style="direction:ltr;text-align:left;font-family:ui-monospace,monospace">
+        </div>
+        <div class="cp-block">
+          <div class="cp-block-label"><i class="ti ti-tag"></i> برچسب (اختیاری)</div>
+          <input class="modal-v2-input" id="settings-clean-ip-label" placeholder="مثلاً: MCI">
+        </div>
+      </div>
+      <button class="btn btn-p" onclick="addCleanIp()" style="width:100%;justify-content:center;padding:10px"><i class="ti ti-plus"></i> افزودن آی‌پی</button>
+      <div id="settings-clean-ips-list" style="display:flex;flex-direction:column;gap:8px;margin-top:4px"></div>
+    </div>
+  </div>
 </section>
 <section class="pg" id="pg-support">
   <div class="topbar"><div><div class="tb-title"><i class="ti ti-headset"></i> پشتیبانی</div></div></div>
@@ -1667,10 +1695,24 @@ async function loadActivity(){
 let allSubsList=[],allLinksList=[];
 async function loadLinks(){
   try{
-    const [lr,sr,cr]=await Promise.all([authF('/api/links'),authF('/api/subs'),authF('/api/connections')]);
+    const [lr,sr,cr,setr]=await Promise.all([authF('/api/links'),authF('/api/subs'),authF('/api/connections'),authF('/api/settings')]);
     const {links=[]}=await lr.json();
     const {subs=[]}=await sr.json();
     const connData=await cr.json().catch(()=>({count:0}));
+    const settingsData=await setr.json().catch(()=>({clean_ips:[]}));
+    allCleanIps=settingsData.clean_ips||[];
+    const nlBlock=document.getElementById('nl-cleanips-block'), nlList=document.getElementById('nl-cleanips-list');
+    if(nlBlock&&nlList){
+      if(allCleanIps.length){
+        nlBlock.style.display='block';
+        nlList.innerHTML=allCleanIps.map(x=>`
+          <label style="display:flex;align-items:center;gap:8px;font-size:11px;cursor:pointer">
+            <input type="checkbox" class="nl-cleanip-chk" value="${esc(x.ip)}" style="accent-color:var(--accent)">
+            <span style="font-family:ui-monospace,monospace;direction:ltr">${esc(x.ip)}</span>
+            ${x.label&&x.label!==x.ip?`<span style="color:var(--t3)">(${esc(x.label)})</span>`:''}
+          </label>`).join('');
+      }else{nlBlock.style.display='none';}
+    }
     const liveCount=connData.count||0;
     const liveBadge=document.getElementById('links-live-badge');
     if(liveBadge)liveBadge.innerHTML='<span class="dot '+(liveCount>0?'dg pulse':'dr')+'"></span> '+toFa(liveCount)+' نفر آنلاین';
@@ -1750,16 +1792,21 @@ async function createLink(){
   const ip_limit=Number(document.getElementById('nl-iplimit').value)||0;
   const speed_limit_value=Number(document.getElementById('nl-speed').value)||0;
   const speed_limit_unit=document.getElementById('nl-speed-unit').value;
+  const clean_ips=[...document.querySelectorAll('.nl-cleanip-chk:checked')].map(c=>c.value);
   try{
-    const r=await authF('/api/links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({label,limit_value:val||0,limit_unit:unit,expires_days:exp||0,note,sub_id,protocol,fingerprint,alpn,port,ip_limit,speed_limit_value,speed_limit_unit})});
+    const r=await authF('/api/links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({label,limit_value:val||0,limit_unit:unit,expires_days:exp||0,note,sub_id,protocol,fingerprint,alpn,port,ip_limit,speed_limit_value,speed_limit_unit,clean_ips})});
     if(!r.ok)throw new Error('failed');
+    const d=await r.json().catch(()=>({}));
     ['nl-label','nl-val','nl-exp','nl-note','nl-alpn'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('nl-port').value='443';
     document.getElementById('nl-iplimit').value='0';
     document.getElementById('nl-speed').value='0';
     document.getElementById('nl-alpn-preset').value='';
     document.getElementById('nl-alpn').style.display='none';
-    toast('کانفیگ ساخته شد ✓','ok');loadLinks();
+    document.querySelectorAll('.nl-cleanip-chk:checked').forEach(c=>c.checked=false);
+    const extraCount=(d.extra_links||[]).length;
+    toast('کانفیگ'+(extraCount?' و '+toFa(extraCount)+' نسخه‌ی آی‌پی تمیز':'')+' ساخته شد ✓','ok');
+    loadLinks();
   }catch(e){toast('خطا در ساخت','err')}
 }
 function openEditLink(uuid){
@@ -1877,9 +1924,32 @@ function filterSubs(q){
   renderSubsGrid(allSubsRaw.filter(s=>s.name.toLowerCase().includes(q)||(s.desc||'').toLowerCase().includes(q)));
 }
 let nsSelectedProtos=new Set();
+async function openCreateSubModal(){
+  openModal('modal-create-sub');
+  try{
+    const r=await authF('/api/settings');
+    const d=await r.json();
+    allCleanIps=d.clean_ips||[];
+  }catch(e){}
+}
 const NS_PROTO_LABELS={'vless-ws':'VLESS/WS','xhttp-packet-up':'XHTTP Packet-Up','xhttp-stream-up':'XHTTP Stream-Up'};
 function nsProtoSettingsCard(proto){
   const label=NS_PROTO_LABELS[proto]||proto;
+  const cleanIpsHtml = allCleanIps.length ? `
+    <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--card-b)">
+      <div style="font-size:10.5px;color:var(--t3);margin-bottom:7px"><i class="ti ti-list-check"></i> علاوه بر مسیر بالا، از این آی‌پی‌های تمیز هم کانفیگ جدا بساز:</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${allCleanIps.map(x=>`
+          <label style="display:flex;align-items:center;gap:8px;font-size:11px;cursor:pointer">
+            <input type="checkbox" class="ns-cleanip-chk" data-proto="${proto}" value="${esc(x.ip)}" style="accent-color:var(--accent)">
+            <span style="font-family:ui-monospace,monospace;direction:ltr">${esc(x.ip)}</span>
+            ${x.label&&x.label!==x.ip?`<span style="color:var(--t3)">(${esc(x.label)})</span>`:''}
+          </label>`).join('')}
+      </div>
+    </div>` : `
+    <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--card-b);font-size:10px;color:var(--t3)">
+      <i class="ti ti-info-circle"></i> برای افزودن آی‌پی تمیز، اول از صفحه‌ی تنظیمات چندتا اضافه کن
+    </div>`;
   return `<div class="cp-block mb16" id="ns-set-${proto}" data-proto="${proto}">
     <div class="cp-block-label"><i class="ti ti-adjustments"></i> تنظیمات اختصاصی ${label}</div>
     <input class="modal-v2-input" id="ns-set-${proto}-label" placeholder="اسم این کانفیگ (اختیاری) — کنار حجم/زمان باقی‌مانده نشون داده می‌شه" style="margin-bottom:8px">
@@ -1895,6 +1965,7 @@ function nsProtoSettingsCard(proto){
       <option value="__custom__">ALPN دستی...</option>
     </select>
     <input class="modal-v2-input" id="ns-set-${proto}-alpn" placeholder="مقدار دستی ALPN" style="display:none;margin-top:8px">
+    ${cleanIpsHtml}
   </div>`;
 }
 function setNsRoute(proto,route,el){
@@ -1960,19 +2031,21 @@ async function createSub(){
     const alpnPreset=document.getElementById('ns-set-'+proto+'-alpn-preset')?.value||'';
     const alpn=alpnPreset==='__custom__'?(document.getElementById('ns-set-'+proto+'-alpn')?.value.trim()||''):alpnPreset;
     const route=document.getElementById('ns-set-'+proto)?.dataset.route||'domain';
+    const clean_ips=[...document.querySelectorAll(`.ns-cleanip-chk[data-proto="${proto}"]:checked`)].map(c=>c.value);
     return {
       protocol:proto,
       label: customLabel || name,
-      fingerprint,port,ip_limit,speed_limit_value,speed_limit_unit,alpn,route,
+      fingerprint,port,ip_limit,speed_limit_value,speed_limit_unit,alpn,route,clean_ips,
     };
   });
+  const totalConfigs=links.reduce((n,l)=>n+1+(l.clean_ips?.length||0),0);
   try{
     const r=await authF('/api/subs/bulk-create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,desc,password:pw,quota_value,quota_unit,expires_days,links})});
     const d=await r.json().catch(()=>({}));
     if(!r.ok)throw new Error(d.detail||'خطا در ساخت گروه');
     resetCreateSubForm();
     closeModal('modal-create-sub');
-    toast('گروه با '+links.length+' کانفیگ ساخته شد ✓','ok');
+    toast('گروه با '+totalConfigs+' کانفیگ ساخته شد ✓','ok');
     loadSubs();loadLinks();
   }catch(e){toast('✗ '+(e.message||'خطا در ساخت گروه'),'err')}
 }
@@ -2226,6 +2299,7 @@ async function changePw(){
   }catch(e){toast('✗ '+e.message,'err')}
 }
 let expiredMsgDefault='';
+let allCleanIps=[];
 async function loadSettingsPage(){
   try{
     const r=await authF('/api/settings');
@@ -2235,7 +2309,48 @@ async function loadSettingsPage(){
     document.getElementById('settings-custom-domain').value=d.custom_domain||'';
     document.getElementById('settings-proxy-addr').value=d.proxy_address||'';
     document.getElementById('settings-proxy-port').value=d.proxy_port||'';
+    allCleanIps=d.clean_ips||[];
+    renderCleanIpsList();
   }catch(e){toast('خطا در بارگذاری تنظیمات','err')}
+}
+function renderCleanIpsList(){
+  const box=document.getElementById('settings-clean-ips-list');
+  if(!box)return;
+  if(!allCleanIps.length){box.innerHTML='<div style="color:var(--t3);font-size:11px;text-align:center;padding:10px">هنوز آی‌پی تمیزی اضافه نکردید</div>';return;}
+  box.innerHTML=allCleanIps.map(x=>`
+    <div style="display:flex;align-items:center;gap:9px;background:var(--card-2,rgba(0,0,0,.15));border:1px solid var(--card-b);border-radius:11px;padding:9px 12px">
+      <i class="ti ti-server-2" style="color:var(--accent);flex-shrink:0"></i>
+      <div style="flex:1;min-width:0">
+        <div style="font-family:ui-monospace,monospace;font-size:11.5px;direction:ltr;text-align:left">${esc(x.ip)}</div>
+        ${x.label&&x.label!==x.ip?`<div style="font-size:9.5px;color:var(--t3);margin-top:1px">${esc(x.label)}</div>`:''}
+      </div>
+      <button class="btn btn-sm btn-d btn-icon" onclick="deleteCleanIp('${esc(x.ip)}')" title="حذف"><i class="ti ti-trash"></i></button>
+    </div>`).join('');
+}
+async function addCleanIp(){
+  const ip=document.getElementById('settings-clean-ip-val').value.trim();
+  const label=document.getElementById('settings-clean-ip-label').value.trim();
+  if(!ip){toast('آی‌پی را وارد کنید','err');return;}
+  try{
+    const r=await authF('/api/settings/clean-ips',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ip,label})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(d.detail||'خطا در افزودن');
+    allCleanIps=d.clean_ips||[];
+    renderCleanIpsList();
+    document.getElementById('settings-clean-ip-val').value='';
+    document.getElementById('settings-clean-ip-label').value='';
+    toast('آی‌پی اضافه شد ✓','ok');
+  }catch(e){toast('✗ '+(e.message||'خطا در افزودن آی‌پی'),'err')}
+}
+async function deleteCleanIp(ip){
+  try{
+    const r=await authF('/api/settings/clean-ips/'+encodeURIComponent(ip),{method:'DELETE'});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(d.detail||'خطا در حذف');
+    allCleanIps=d.clean_ips||[];
+    renderCleanIpsList();
+    toast('آی‌پی حذف شد ✓','ok');
+  }catch(e){toast('✗ '+(e.message||'خطا در حذف آی‌پی'),'err')}
 }
 async function saveExpiredMessage(){
   const val=document.getElementById('settings-expired-msg').value.trim();
