@@ -196,6 +196,28 @@ async def require_auth(request: Request):
         raise HTTPException(status_code=401, detail="unauthorized")
     return token
 
+# ── Per-sub-group usage/online snapshot logger ────────────────────────────────
+USAGE_SNAPSHOT_INTERVAL = 900   # هر ۱۵ دقیقه یه اسنپ‌شات از حجم/آنلاین‌بودن هر گروه
+MAX_USAGE_LOG_ENTRIES = 3200    # تقریباً ۳۳ روز تاریخچه با این بازه
+
+async def usage_snapshot_task():
+    while True:
+        await asyncio.sleep(USAGE_SNAPSHOT_INTERVAL)
+        try:
+            now_iso = datetime.now().isoformat()
+            async with SUBS_LOCK, LINKS_LOCK:
+                for sid, sub in SUBS.items():
+                    link_ids = sub.get("link_ids", [])
+                    total_used = sum(LINKS[lid].get("used_bytes", 0) for lid in link_ids if lid in LINKS)
+                    online = any(c.get("uuid") in link_ids for c in connections.values())
+                    log = sub.setdefault("usage_log", [])
+                    log.append({"ts": now_iso, "used_bytes": total_used, "online": online})
+                    if len(log) > MAX_USAGE_LOG_ENTRIES:
+                        del log[: len(log) - MAX_USAGE_LOG_ENTRIES]
+            await save_state()
+        except Exception as e:
+            logger.warning(f"usage snapshot error: {e}")
+
 # ── Startup / Shutdown ────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup():
@@ -207,6 +229,7 @@ async def startup():
     )
     await load_state()
     await _tg_start_bot()
+    asyncio.create_task(usage_snapshot_task())
     log_activity("system", "سرور راه‌اندازی شد", "ok")
     logger.info(f"Panel v9.5 started on port {CONFIG['port']}")
 
@@ -840,6 +863,61 @@ async def update_sub(sub_id: str, request: Request, _=Depends(require_auth)):
     if action:
         log_activity("sub", f"گروه «{s['name']}» {action} شد", "info")
     return {"ok": True}
+
+@app.get("/api/subs/{sub_id}/usage")
+async def get_sub_usage(sub_id: str, range: str = "week", _=Depends(require_auth)):
+    async with SUBS_LOCK:
+        sub = SUBS.get(sub_id)
+        if not sub:
+            raise HTTPException(status_code=404, detail="sub not found")
+        log = list(sub.get("usage_log", []))
+
+    now = datetime.now()
+    if range == "day":
+        cutoff, bucket_fmt = now - timedelta(days=1), "%H:00"
+    elif range == "month":
+        cutoff, bucket_fmt = now - timedelta(days=30), "%m/%d"
+    else:
+        range = "week"
+        cutoff, bucket_fmt = now - timedelta(days=7), "%m/%d"
+
+    entries = []
+    for e in log:
+        try:
+            t = datetime.fromisoformat(e["ts"])
+        except Exception:
+            continue
+        if t >= cutoff:
+            entries.append((t, e))
+    entries.sort(key=lambda x: x[0])
+
+    buckets: dict[str, dict] = {}
+    prev_used = None
+    for t, e in entries:
+        label = t.strftime(bucket_fmt)
+        b = buckets.setdefault(label, {"volume": 0, "online": 0, "total": 0, "order": t})
+        used = e.get("used_bytes", 0)
+        if prev_used is not None:
+            b["volume"] += max(0, used - prev_used)
+        prev_used = used
+        b["total"] += 1
+        if e.get("online"):
+            b["online"] += 1
+
+    ordered = sorted(buckets.keys(), key=lambda k: buckets[k]["order"])
+    snapshot_minutes = USAGE_SNAPSHOT_INTERVAL / 60
+
+    return {
+        "range": range,
+        "labels": ordered,
+        "volume_bytes": [buckets[l]["volume"] for l in ordered],
+        "volume_fmt": [fmt_bytes(buckets[l]["volume"]) for l in ordered],
+        "online_minutes": [round(buckets[l]["online"] * snapshot_minutes) for l in ordered],
+        "log": [
+            {"ts": e["ts"], "used_bytes": e.get("used_bytes", 0), "online": e.get("online", False)}
+            for _, e in entries[-300:]
+        ],
+    }
 
 @app.post("/api/subs/{sub_id}/reset")
 async def reset_sub_usage(sub_id: str, _=Depends(require_auth)):

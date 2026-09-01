@@ -875,6 +875,38 @@ a{color:inherit;text-decoration:none}
     </div>
   </div>
 </div>
+<div class="modal-bg" id="modal-sub-log">
+  <div class="modal-v2" style="max-width:600px">
+    <div class="modal-v2-head">
+      <button class="modal-v2-close" onclick="closeModal('modal-sub-log')"><i class="ti ti-x"></i></button>
+      <div class="modal-v2-icon"><i class="ti ti-chart-histogram"></i></div>
+      <div class="modal-v2-title">لاگ گروه: <span id="sublog-name"></span></div>
+      <div class="modal-v2-sub">حجم مصرفی و زمان آنلاین‌بودن این گروه در طول زمان</div>
+    </div>
+    <div class="modal-v2-body">
+      <div class="chip-row" id="sublog-range-chips" style="margin-bottom:14px">
+        <span class="chip" data-range="day" onclick="setSublogRange('day',this)">روز</span>
+        <span class="chip active" data-range="week" onclick="setSublogRange('week',this)">هفته</span>
+        <span class="chip" data-range="month" onclick="setSublogRange('month',this)">ماه</span>
+      </div>
+      <div id="sublog-chart-box" style="min-height:180px;display:flex;align-items:center;justify-content:center">
+        <i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px;color:var(--t3)"></i>
+      </div>
+      <div style="display:flex;gap:10px;margin:14px 0">
+        <div class="cp-block" style="text-align:center;flex:1">
+          <div class="cp-block-label" style="justify-content:center">کل مصرف این بازه</div>
+          <div id="sublog-total-vol" style="font-size:15px;font-weight:800;color:var(--t1)">—</div>
+        </div>
+        <div class="cp-block" style="text-align:center;flex:1">
+          <div class="cp-block-label" style="justify-content:center">کل زمان آنلاین</div>
+          <div id="sublog-total-online" style="font-size:15px;font-weight:800;color:var(--green-t)">—</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--t3);margin-bottom:8px"><i class="ti ti-list"></i> آخرین رکوردهای خام (هر ۱۵ دقیقه یک اسنپ‌شات)</div>
+      <div id="sublog-raw-list" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:5px"></div>
+    </div>
+  </div>
+</div>
 <div class="modal-bg" id="modal-edit-link">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('modal-edit-link')"><i class="ti ti-x"></i></button>
@@ -1935,6 +1967,7 @@ function renderSubsGrid(subs){
       </div>
       <div class="sub-card-bottom">
         <button class="btn btn-sm btn-g" onclick="openSubLinks('${esc(s.sub_id)}','${esc(s.name)}')"><i class="ti ti-link-plus"></i> کانفیگ‌ها</button>
+        <button class="btn btn-sm btn-pur btn-icon" onclick="openSubLog('${esc(s.sub_id)}','${esc(s.name)}')" title="لاگ مصرف و آنلاین‌بودن"><i class="ti ti-chart-histogram"></i></button>
         <button class="btn btn-sm btn-o" onclick="navigator.clipboard.writeText('${esc(s.sub_url)}').then(()=>toast('لینک ساب کپی شد','ok'))"><i class="ti ti-rss"></i> ساب</button>
         <button class="btn btn-sm btn-g btn-icon" onclick="showQR('${esc(s.sub_url)}')" title="QR"><i class="ti ti-qrcode"></i></button>
         <button class="btn btn-sm btn-o btn-icon" onclick="openEditSub('${esc(s.sub_id)}')" title="ویرایش"><i class="ti ti-edit"></i></button>
@@ -2112,6 +2145,77 @@ async function resetSubUsage(sub_id,name){
     toast('مصرف گروه ریست شد ✓','ok');
     loadSubs();loadLinks();
   }catch(e){toast('خطا در ریست مصرف','err')}
+}
+let sublogSubId=null,sublogRange='week';
+async function openSubLog(sub_id,name){
+  sublogSubId=sub_id;sublogRange='week';
+  document.getElementById('sublog-name').textContent=name;
+  document.querySelectorAll('#sublog-range-chips .chip').forEach(c=>c.classList.toggle('active',c.dataset.range==='week'));
+  openModal('modal-sub-log');
+  loadSublogData();
+}
+function setSublogRange(range,el){
+  sublogRange=range;
+  document.querySelectorAll('#sublog-range-chips .chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  loadSublogData();
+}
+function fmtBytesJs(b){
+  if(b<1024)return toFa(b)+' B';
+  if(b<1024*1024)return toFa((b/1024).toFixed(1))+' KB';
+  if(b<1024*1024*1024)return toFa((b/1024/1024).toFixed(1))+' MB';
+  return toFa((b/1024/1024/1024).toFixed(2))+' GB';
+}
+function fmtMinutesJs(m){
+  if(m<60)return toFa(m)+' دقیقه';
+  const h=Math.floor(m/60),mm=m%60;
+  return toFa(h)+' ساعت'+(mm?' '+toFa(mm)+' دقیقه':'');
+}
+async function loadSublogData(){
+  const box=document.getElementById('sublog-chart-box');
+  box.innerHTML='<i class="ti ti-loader-2" style="animation:spin 1s linear infinite;font-size:22px;color:var(--t3)"></i>';
+  try{
+    const r=await authF('/api/subs/'+sublogSubId+'/usage?range='+sublogRange);
+    if(!r.ok)throw new Error();
+    const d=await r.json();
+    renderSublogChart(d);
+    const totalVol=(d.volume_bytes||[]).reduce((a,b)=>a+b,0);
+    document.getElementById('sublog-total-vol').textContent=fmtBytesJs(totalVol);
+    const totalOnlineMin=(d.online_minutes||[]).reduce((a,b)=>a+b,0);
+    document.getElementById('sublog-total-online').textContent=fmtMinutesJs(totalOnlineMin);
+    renderSublogRawList(d.log||[]);
+  }catch(e){
+    box.innerHTML='<div style="color:var(--t3);font-size:11px;text-align:center;padding:20px">خطا در بارگذاری لاگ</div>';
+  }
+}
+function renderSublogChart(d){
+  const box=document.getElementById('sublog-chart-box');
+  const labels=d.labels||[],vols=d.volume_bytes||[],volsFmt=d.volume_fmt||[];
+  if(!labels.length){
+    box.innerHTML='<div style="color:var(--t3);font-size:11px;text-align:center;padding:20px;line-height:1.9">هنوز داده‌ای برای این بازه ثبت نشده<br>(هر ۱۵ دقیقه یک اسنپ‌شات گرفته می‌شه)</div>';
+    return;
+  }
+  const max=Math.max(...vols,1);
+  box.innerHTML=`<div style="display:flex;align-items:flex-end;gap:3px;width:100%;height:170px;padding:6px 2px 20px;overflow-x:auto">
+    ${labels.map((l,i)=>{
+      const h=Math.max(3,Math.round((vols[i]/max)*130));
+      return `<div style="flex:1;min-width:14px;display:flex;flex-direction:column;align-items:center;gap:4px;position:relative" title="${esc(l)}: ${esc(volsFmt[i]||'')}">
+        <div style="width:100%;max-width:20px;height:${h}px;background:linear-gradient(180deg,var(--accent),#2952C8);border-radius:4px 4px 0 0"></div>
+        <div style="font-size:7.5px;color:var(--t3);white-space:nowrap;position:absolute;top:100%;margin-top:3px">${esc(l)}</div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+function renderSublogRawList(log){
+  const box=document.getElementById('sublog-raw-list');
+  if(!log.length){box.innerHTML='<div style="color:var(--t3);font-size:11px;text-align:center;padding:10px">هنوز رکوردی ثبت نشده</div>';return;}
+  const rev=[...log].reverse();
+  box.innerHTML=rev.map(e=>`
+    <div style="display:flex;align-items:center;gap:9px;background:rgba(0,0,0,.12);border:1px solid var(--card-b);border-radius:9px;padding:7px 11px;font-size:10.5px">
+      <span class="dot ${e.online?'dg pulse':'dr'}"></span>
+      <span style="color:var(--t2)">${new Date(e.ts).toLocaleString('fa-IR')}</span>
+      <span style="margin-inline-start:auto;font-family:ui-monospace,monospace;color:var(--t1)">${fmtBytesJs(e.used_bytes||0)}</span>
+    </div>`).join('');
 }
 let esEditingSubId=null;
 async function openEditSub(sub_id){
