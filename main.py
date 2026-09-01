@@ -122,7 +122,7 @@ SUBS: dict = {}
 SUBS_LOCK = asyncio.Lock()
 
 DEFAULT_EXPIRED_MESSAGE = "اعتبار زمانی یا حجم این کانفیگ تمام شده، لطفاً به پشتیبانی تماس بگیرید"
-SETTINGS: dict = {"expired_message": DEFAULT_EXPIRED_MESSAGE, "custom_domain": "", "proxy_address": "", "proxy_port": 0, "clean_ips": []}
+SETTINGS: dict = {"expired_message": DEFAULT_EXPIRED_MESSAGE, "custom_domain": "", "proxy_address": "", "proxy_port": 0, "clean_ips": [], "threexui_address": "", "threexui_port": 0}
 SETTINGS_LOCK = asyncio.Lock()
 
 # پروتکل‌های پشتیبانی‌شده برای هر کانفیگ
@@ -364,12 +364,14 @@ def vless_link_for_link(link: dict, uid: str, host: str, dynamic_remark: bool = 
     """generate_vless_link رو با تنظیمات دستی همون کانفیگ (fingerprint/alpn/port) صدا می‌زنه.
     وقتی dynamic_remark=True باشه (برای سرو کردن ساب داخل اپ v2ray)، به‌جای اسم خام،
     اسم + حجم باقی‌مانده + روز باقی‌مانده به‌عنوان remark ساخته می‌شه.
-    link['route'] سه حالت داره:
+    link['route'] چهار حالت داره:
       - 'domain'   : پیش‌فرض؛ آدرس و TLS/SNI هر دو رو دامنه‌ی خودش می‌سازه.
       - 'proxy'    : آدرس/پورت از پروکسی TCP ریلوی؛ چون خودِ پروکسی TLS رو ترمینیت نمی‌کنه، security=none.
       - 'clean_ip' : آدرس، آی‌پی تمیزیه که تو تنظیمات ذخیره شده (link['clean_ip'])، ولی TLS/SNI/Host
                      همچنان دامنه‌ی خودش می‌مونه (چون این آی‌پی‌ها پشت کلادفلرن و روتینگ لبه‌ی کلادفلر
-                     بر اساس SNI انجام می‌شه، نه IP)."""
+                     بر اساس SNI انجام می‌شه، نه IP).
+      - 'threexui' : آدرس/پورت از یه پنل 3x-ui کاملاً جدا (تو تنظیمات پیش‌ست شده)؛ چون خودش دامنه‌ی
+                     مستقل با TLS معتبره، هم آدرس هم SNI از رو همون دامین 3x-ui ساخته می‌شه."""
     proto = link.get("protocol", DEFAULT_PROTOCOL)
     remark = build_config_remark(link) if dynamic_remark else (link.get('label') or "Config")
     route = link.get("route", "domain")
@@ -390,6 +392,15 @@ def vless_link_for_link(link: dict, uid: str, host: str, dynamic_remark: bool = 
                 uid, host, remark=remark, protocol=proto,
                 fingerprint=link.get("fingerprint"), alpn=link.get("alpn"),
                 port=link.get("port"), address=clean_ip, security="tls",
+            )
+    elif route == "threexui":
+        tx_addr = SETTINGS.get("threexui_address") or ""
+        tx_port = SETTINGS.get("threexui_port") or 0
+        if tx_addr and tx_port:
+            return generate_vless_link(
+                uid, tx_addr, remark=remark, protocol=proto,
+                fingerprint=link.get("fingerprint"), alpn=link.get("alpn"),
+                port=tx_port, address=tx_addr, security="tls",
             )
 
     return generate_vless_link(
@@ -455,6 +466,13 @@ def is_link_expired(link: dict) -> bool:
         return datetime.now() > datetime.fromisoformat(exp)
     except Exception:
         return False
+
+def clean_ip_label(ip: str) -> str:
+    """برچسب (اختیاری) ذخیره‌شده برای یه آی‌پی تمیز رو برمی‌گردونه؛ اگه برچسبی ثبت نشده باشه، خودِ آی‌پی رو برمی‌گردونه."""
+    for x in SETTINGS.get("clean_ips", []):
+        if x.get("ip") == ip:
+            return x.get("label") or ip
+    return ip
 
 def sub_group_used_bytes(sub_id: str) -> int:
     """مجموع حجم مصرفی همه‌ی کانفیگ‌های داخل یک گروه ساب (برای کوتای مشترک گروه)."""
@@ -721,7 +739,7 @@ async def bulk_create_sub(request: Request, _=Depends(require_auth)):
             if not ip:
                 continue
             uid2, link2 = await make_link(
-                label=f"{base_label} · IP {idx}",
+                label=f"{base_label} · {clean_ip_label(ip)}",
                 limit_bytes=0,
                 expires_at=None,
                 note="",
@@ -964,6 +982,8 @@ async def api_get_settings(_=Depends(require_auth)):
         "detected_domain": os.environ.get("RAILWAY_PUBLIC_DOMAIN", CONFIG["host"]),
         "proxy_address": SETTINGS.get("proxy_address", ""),
         "proxy_port": SETTINGS.get("proxy_port", 0),
+        "threexui_address": SETTINGS.get("threexui_address", ""),
+        "threexui_port": SETTINGS.get("threexui_port", 0),
         "clean_ips": SETTINGS.get("clean_ips", []),
     }
 
@@ -1019,11 +1039,23 @@ async def api_update_settings(request: Request, _=Depends(require_auth)):
             except (TypeError, ValueError):
                 p = 0
             SETTINGS["proxy_port"] = p if 0 < p <= 65535 else 0
+        if "threexui_address" in body:
+            addr = str(body["threexui_address"]).strip().lower()
+            addr = re.sub(r"^https?://", "", addr).split("/")[0].split(":")[0]
+            SETTINGS["threexui_address"] = addr
+        if "threexui_port" in body:
+            try:
+                p = int(body["threexui_port"] or 0)
+            except (TypeError, ValueError):
+                p = 0
+            SETTINGS["threexui_port"] = p if 0 < p <= 65535 else 0
     await save_state()
     if "custom_domain" in body:
         log_activity("settings", f"دامین خروجی {'روی «'+SETTINGS['custom_domain']+'» ست شد' if SETTINGS['custom_domain'] else 'به تشخیص خودکار برگشت'}", "info")
     elif "proxy_address" in body or "proxy_port" in body:
         log_activity("settings", f"پروکسی TCP ریلوی {'روی «'+SETTINGS['proxy_address']+':'+str(SETTINGS['proxy_port'])+'» ست شد' if SETTINGS['proxy_address'] and SETTINGS['proxy_port'] else 'پاک شد'}", "info")
+    elif "threexui_address" in body or "threexui_port" in body:
+        log_activity("settings", f"آدرس 3x-ui {'روی «'+SETTINGS['threexui_address']+':'+str(SETTINGS['threexui_port'])+'» ست شد' if SETTINGS['threexui_address'] and SETTINGS['threexui_port'] else 'پاک شد'}", "info")
     else:
         log_activity("settings", "پیام اتمام اعتبار بروزرسانی شد", "info")
     return {
@@ -1032,6 +1064,8 @@ async def api_update_settings(request: Request, _=Depends(require_auth)):
         "custom_domain": SETTINGS.get("custom_domain", ""),
         "proxy_address": SETTINGS.get("proxy_address", ""),
         "proxy_port": SETTINGS.get("proxy_port", 0),
+        "threexui_address": SETTINGS.get("threexui_address", ""),
+        "threexui_port": SETTINGS.get("threexui_port", 0),
     }
 
 # ── Backup / Restore ──────────────────────────────────────────────────────────
@@ -1198,7 +1232,7 @@ async def make_link(
         fingerprint = DEFAULT_FINGERPRINT
     if not (MIN_PORT <= port <= MAX_PORT):
         port = DEFAULT_PORT
-    if route not in ("domain", "proxy", "clean_ip"):
+    if route not in ("domain", "proxy", "clean_ip", "threexui"):
         route = "domain"
     uid = generate_uuid()
     async with LINKS_LOCK:
@@ -1366,7 +1400,7 @@ async def create_link(request: Request, _=Depends(require_auth)):
         if not ip:
             continue
         uid2, link2 = await make_link(
-            label=f"{base_label} · IP {idx}",
+            label=f"{base_label} · {clean_ip_label(ip)}",
             limit_bytes=limit_bytes,
             expires_at=expires_at,
             note=body.get("note") or "",

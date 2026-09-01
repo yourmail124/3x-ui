@@ -1492,6 +1492,33 @@ a{color:inherit;text-decoration:none}
 
   <div class="srv-panel" style="margin-top:13px">
     <div class="srv-hero">
+      <div class="srv-hero-icon"><i class="ti ti-server-2"></i></div>
+      <div class="srv-hero-text">
+        <div class="srv-hero-domain">پنل 3x-ui</div>
+        <div class="srv-hero-sub">اگه یه پنل 3x-ui مجزا (روی دامنه‌ی خودش) دارید، آدرس و پورتش رو اینجا پیش‌ست کنید. کانفیگ‌هایی که تو ویزارد ساخت گروه، مسیرشون رو «3x-ui» انتخاب کنید، مستقیم از همین آدرس/پورت (با TLS معمولی) ساخته می‌شن</div>
+      </div>
+    </div>
+    <div style="padding:20px 24px 24px;display:flex;flex-direction:column;gap:12px">
+      <div class="cp-row" style="margin-bottom:0">
+        <div class="cp-block">
+          <div class="cp-block-label"><i class="ti ti-world"></i> آدرس/دامنه‌ی 3x-ui</div>
+          <input class="modal-v2-input" id="settings-threexui-addr" placeholder="مثلاً: panel.example.com" style="direction:ltr;text-align:left;font-family:ui-monospace,monospace">
+        </div>
+        <div class="cp-block">
+          <div class="cp-block-label"><i class="ti ti-plug"></i> پورت</div>
+          <input class="modal-v2-input" id="settings-threexui-port" type="number" min="1" max="65535" placeholder="مثلاً: 443" style="direction:ltr;text-align:left">
+        </div>
+      </div>
+      <div class="cl"><i class="ti ti-info-circle"></i><span>برخلاف پروکسی رایلوی، این آدرس با TLS معمولی (security=tls) و SNI خودش ساخته می‌شه — چون فرض بر اینه که خودش پشت یه دامنه‌ی معتبره.</span></div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-p" onclick="saveThreexuiSettings()" style="flex:1;justify-content:center;padding:10px"><i class="ti ti-device-floppy"></i> ذخیره 3x-ui</button>
+        <button class="btn btn-o" onclick="clearThreexuiSettings()" style="padding:10px 16px"><i class="ti ti-trash"></i> پاک کردن</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="srv-panel" style="margin-top:13px">
+    <div class="srv-hero">
       <div class="srv-hero-icon"><i class="ti ti-list-check"></i></div>
       <div class="srv-hero-text">
         <div class="srv-hero-domain">آی‌پی‌های تمیز (Clean IP)</div>
@@ -1960,6 +1987,7 @@ function nsProtoSettingsCard(proto){
     <div class="chip-row" style="margin-bottom:8px">
       <span class="chip active" data-route="domain" onclick="setNsRoute('${proto}','domain',this)"><i class="ti ti-world" style="font-size:11px"></i> دامنه اصلی</span>
       <span class="chip" data-route="proxy" onclick="setNsRoute('${proto}','proxy',this)"><i class="ti ti-route" style="font-size:11px"></i> پروکسی ضدفیلتر (Railway)</span>
+      <span class="chip" data-route="threexui" onclick="setNsRoute('${proto}','threexui',this)"><i class="ti ti-server-2" style="font-size:11px"></i> 3x-ui</span>
     </div>
     <select class="modal-v2-input fs" id="ns-set-${proto}-alpn-preset" onchange="onNsAlpnChange('${proto}')">
       <option value="">ALPN: پیش‌فرض پروتکل</option>
@@ -2324,6 +2352,8 @@ async function loadSettingsPage(){
     document.getElementById('settings-custom-domain').value=d.custom_domain||'';
     document.getElementById('settings-proxy-addr').value=d.proxy_address||'';
     document.getElementById('settings-proxy-port').value=d.proxy_port||'';
+    document.getElementById('settings-threexui-addr').value=d.threexui_address||'';
+    document.getElementById('settings-threexui-port').value=d.threexui_port||'';
     allCleanIps=d.clean_ips||[];
     renderCleanIpsList();
   }catch(e){toast('خطا در بارگذاری تنظیمات','err')}
@@ -2409,6 +2439,22 @@ function clearProxySettings(){
   document.getElementById('settings-proxy-addr').value='';
   document.getElementById('settings-proxy-port').value='';
   saveProxySettings();
+}
+async function saveThreexuiSettings(){
+  let addr=document.getElementById('settings-threexui-addr').value.trim();
+  addr=addr.replace(/^https?:\/\//i,'').replace(/\/+$/,'');
+  const port=parseInt(document.getElementById('settings-threexui-port').value)||0;
+  try{
+    const r=await authF('/api/settings',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({threexui_address:addr,threexui_port:port})});
+    if(!r.ok)throw new Error();
+    document.getElementById('settings-threexui-addr').value=addr;
+    toast(addr&&port?'آدرس 3x-ui ذخیره شد ✓':'آدرس 3x-ui پاک شد ✓','ok');
+  }catch(e){toast('خطا در ذخیره 3x-ui','err')}
+}
+function clearThreexuiSettings(){
+  document.getElementById('settings-threexui-addr').value='';
+  document.getElementById('settings-threexui-port').value='';
+  saveThreexuiSettings();
 }
 async function downloadBackup(){
   try{
