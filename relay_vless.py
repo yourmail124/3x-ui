@@ -21,6 +21,8 @@ from main import (
     save_state,
     log_activity,
     now_ir,
+    log_sub_connect,
+    log_sub_disconnect,
 )
 from speed_limit import throttle
 
@@ -143,6 +145,7 @@ async def websocket_tunnel(ws: WebSocket, uuid: str):
         "connected_at": datetime.now().isoformat(),
         "bytes": 0,
     }
+    log_sub_connect(uuid, conn_id)
     logger.info(f"✅ WS [{conn_id}] uuid={uuid[:8]}… ip={ip} total={len(connections)}")
     log_activity("connection", f"اتصال جدید از {ip} (کانفیگ {link.get('label','?')})", "info")
     writer = None
@@ -211,4 +214,5 @@ async def websocket_tunnel(ws: WebSocket, uuid: str):
             except Exception:
                 pass
         connections.pop(conn_id, None)
+        log_sub_disconnect(uuid, conn_id)
         logger.info(f"🔌 WS closed [{conn_id}] total={len(connections)}")

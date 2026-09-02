@@ -196,27 +196,54 @@ async def require_auth(request: Request):
         raise HTTPException(status_code=401, detail="unauthorized")
     return token
 
-# ── Per-sub-group usage/online snapshot logger ────────────────────────────────
-USAGE_SNAPSHOT_INTERVAL = 900   # هر ۱۵ دقیقه یه اسنپ‌شات از حجم/آنلاین‌بودن هر گروه
-MAX_USAGE_LOG_ENTRIES = 3200    # تقریباً ۳۳ روز تاریخچه با این بازه
+# ── Per-sub-group usage/online logger — رویدادمحور (فقط لحظه‌ی وصل/قطع)، نه دوره‌ای ────
+MAX_USAGE_LOG_ENTRIES = 2000   # سقف تعداد رویداد ذخیره‌شده برای هر گروه (تا حجم دیتا زیاد نشه)
 
-async def usage_snapshot_task():
-    while True:
-        await asyncio.sleep(USAGE_SNAPSHOT_INTERVAL)
-        try:
-            now_iso = datetime.now().isoformat()
-            async with SUBS_LOCK, LINKS_LOCK:
-                for sid, sub in SUBS.items():
-                    link_ids = sub.get("link_ids", [])
-                    total_used = sum(LINKS[lid].get("used_bytes", 0) for lid in link_ids if lid in LINKS)
-                    online = any(c.get("uuid") in link_ids for c in connections.values())
-                    log = sub.setdefault("usage_log", [])
-                    log.append({"ts": now_iso, "used_bytes": total_used, "online": online})
-                    if len(log) > MAX_USAGE_LOG_ENTRIES:
-                        del log[: len(log) - MAX_USAGE_LOG_ENTRIES]
-            await save_state()
-        except Exception as e:
-            logger.warning(f"usage snapshot error: {e}")
+_conn_started_at: dict[str, float] = {}   # conn_id -> زمان شروع (epoch)
+_conn_bytes_start: dict[str, int] = {}    # conn_id -> used_bytes لینک لحظه‌ی وصل شدن
+
+def _append_sub_usage_event(sub_id: str, entry: dict):
+    sub = SUBS.get(sub_id)
+    if not sub:
+        return
+    log = sub.setdefault("usage_log", [])
+    log.append(entry)
+    if len(log) > MAX_USAGE_LOG_ENTRIES:
+        del log[: len(log) - MAX_USAGE_LOG_ENTRIES]
+
+def log_sub_connect(uuid: str, conn_id: str):
+    """موقع وصل شدن یه کانکشن جدید صدا زده می‌شه؛ فقط زمان دقیق وصل شدن رو ثبت می‌کنه."""
+    link = LINKS.get(uuid)
+    if not link:
+        return
+    _conn_started_at[conn_id] = time.time()
+    _conn_bytes_start[conn_id] = link.get("used_bytes", 0)
+    sub_id = link.get("sub_id")
+    if not sub_id:
+        return
+    _append_sub_usage_event(sub_id, {"ts": datetime.now().isoformat(), "event": "connect"})
+
+def log_sub_disconnect(uuid: str, conn_id: str):
+    """موقع قطع شدن همون کانکشن صدا زده می‌شه؛ مدت‌زمان وصل بودن + حجم مصرفی همون سشن رو ثبت می‌کنه."""
+    start_ts = _conn_started_at.pop(conn_id, None)
+    bytes_start = _conn_bytes_start.pop(conn_id, None)
+    if start_ts is None:
+        return
+    link = LINKS.get(uuid)
+    if not link:
+        return
+    sub_id = link.get("sub_id")
+    if not sub_id:
+        return
+    duration = max(0, int(time.time() - start_ts))
+    bytes_used = max(0, link.get("used_bytes", 0) - (bytes_start or 0))
+    _append_sub_usage_event(sub_id, {
+        "ts": datetime.now().isoformat(),
+        "event": "disconnect",
+        "duration_seconds": duration,
+        "bytes_used": bytes_used,
+    })
+    asyncio.create_task(save_state())
 
 # ── Startup / Shutdown ────────────────────────────────────────────────────────
 @app.on_event("startup")
@@ -229,7 +256,6 @@ async def startup():
     )
     await load_state()
     await _tg_start_bot()
-    asyncio.create_task(usage_snapshot_task())
     log_activity("system", "سرور راه‌اندازی شد", "ok")
     logger.info(f"Panel v9.5 started on port {CONFIG['port']}")
 
@@ -891,30 +917,34 @@ async def get_sub_usage(sub_id: str, range: str = "week", _=Depends(require_auth
             entries.append((t, e))
     entries.sort(key=lambda x: x[0])
 
+    # فقط رویدادهای «disconnect» حجم/مدت واقعی یه سشن رو دارن (چون در لحظه‌ی connect هنوز چیزی
+    # مصرف نشده)؛ برای همین دسته‌بندی بر اساس زمان قطع شدن انجام می‌شه.
     buckets: dict[str, dict] = {}
-    prev_used = None
     for t, e in entries:
+        if e.get("event") != "disconnect":
+            continue
         label = t.strftime(bucket_fmt)
-        b = buckets.setdefault(label, {"volume": 0, "online": 0, "total": 0, "order": t})
-        used = e.get("used_bytes", 0)
-        if prev_used is not None:
-            b["volume"] += max(0, used - prev_used)
-        prev_used = used
-        b["total"] += 1
-        if e.get("online"):
-            b["online"] += 1
+        b = buckets.setdefault(label, {"volume": 0, "online_seconds": 0, "sessions": 0, "order": t})
+        b["volume"] += max(0, e.get("bytes_used", 0))
+        b["online_seconds"] += max(0, e.get("duration_seconds", 0))
+        b["sessions"] += 1
 
     ordered = sorted(buckets.keys(), key=lambda k: buckets[k]["order"])
-    snapshot_minutes = USAGE_SNAPSHOT_INTERVAL / 60
 
     return {
         "range": range,
         "labels": ordered,
         "volume_bytes": [buckets[l]["volume"] for l in ordered],
         "volume_fmt": [fmt_bytes(buckets[l]["volume"]) for l in ordered],
-        "online_minutes": [round(buckets[l]["online"] * snapshot_minutes) for l in ordered],
+        "online_minutes": [round(buckets[l]["online_seconds"] / 60) for l in ordered],
+        "sessions": [buckets[l]["sessions"] for l in ordered],
         "log": [
-            {"ts": e["ts"], "used_bytes": e.get("used_bytes", 0), "online": e.get("online", False)}
+            {
+                "ts": e["ts"],
+                "event": e.get("event", "disconnect"),
+                "duration_seconds": e.get("duration_seconds", 0),
+                "bytes_used": e.get("bytes_used", 0),
+            }
             for _, e in entries[-300:]
         ],
     }

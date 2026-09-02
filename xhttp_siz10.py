@@ -26,6 +26,8 @@ from main import (
     is_link_allowed,
     is_ip_allowed,
     save_state,
+    log_sub_connect,
+    log_sub_disconnect,
 )
 from relay_vless import parse_vless_header, check_and_use
 from speed_limit import throttle
@@ -230,6 +232,7 @@ async def _get_or_create_session(uuid: str, mode: str, session_id: str, ip: str 
             "flow": None,  # لازی ساخته می‌شه: _AdaptiveFlow مخصوص stream-up
         }
         xhttp_sessions[session_id] = sess
+        log_sub_connect(uuid, conn_id)
         logger.info(f"new XHTTP[{mode}] session [{session_id[:8]}] uuid={uuid[:8]} ip={ip}")
         return sess
 
@@ -256,6 +259,7 @@ async def _teardown(session_id: str):
         except Exception:
             pass
     connections.pop(sess.get("conn_id"), None)
+    log_sub_disconnect(sess.get("uuid"), sess.get("conn_id"))
     dq = sess.get("down_q")
     if dq:
         try:
