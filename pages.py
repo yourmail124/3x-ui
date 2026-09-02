@@ -902,7 +902,10 @@ a{color:inherit;text-decoration:none}
           <div id="sublog-total-online" style="font-size:15px;font-weight:800;color:var(--green-t)">—</div>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--t3);margin-bottom:8px"><i class="ti ti-list"></i> آخرین رویدادهای وصل/قطع شدن</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:11px;color:var(--t3)"><i class="ti ti-list"></i> آخرین سشن‌های وصل بودن (کوتاه‌تر از ۵ دقیقه ثبت نمی‌شن)</div>
+        <button class="btn btn-sm btn-d btn-icon" onclick="resetSubLog()" title="پاک کردن کل لاگ این گروه"><i class="ti ti-trash"></i></button>
+      </div>
       <div id="sublog-raw-list" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:5px"></div>
     </div>
   </div>
@@ -2192,7 +2195,7 @@ function renderSublogChart(d){
   const box=document.getElementById('sublog-chart-box');
   const labels=d.labels||[],vols=d.volume_bytes||[],volsFmt=d.volume_fmt||[];
   if(!labels.length){
-    box.innerHTML='<div style="color:var(--t3);font-size:11px;text-align:center;padding:20px;line-height:1.9">هنوز داده‌ای برای این بازه ثبت نشده<br>(به محض اولین وصل/قطع شدن، اینجا نمایش داده می‌شه)</div>';
+    box.innerHTML='<div style="color:var(--t3);font-size:11px;text-align:center;padding:20px;line-height:1.9">هنوز داده‌ای برای این بازه ثبت نشده<br>(اتصالات کوتاه‌تر از ۵ دقیقه لاگ نمی‌شن)</div>';
     return;
   }
   const max=Math.max(...vols,1);
@@ -2215,21 +2218,27 @@ function fmtDurationJs(sec){
 }
 function renderSublogRawList(log){
   const box=document.getElementById('sublog-raw-list');
-  if(!log.length){box.innerHTML='<div style="color:var(--t3);font-size:11px;text-align:center;padding:10px">هنوز رکوردی ثبت نشده</div>';return;}
+  if(!log.length){box.innerHTML='<div style="color:var(--t3);font-size:11px;text-align:center;padding:10px">هنوز سشنی (حداقل ۵ دقیقه‌ای) ثبت نشده</div>';return;}
   const rev=[...log].reverse();
-  box.innerHTML=rev.map(e=>{
-    const isConnect=e.event==='connect';
-    return `
+  box.innerHTML=rev.map(e=>`
     <div style="display:flex;align-items:center;gap:9px;background:rgba(0,0,0,.12);border:1px solid var(--card-b);border-radius:9px;padding:7px 11px;font-size:10.5px">
-      <span class="dot ${isConnect?'dg pulse':'dr'}"></span>
-      <span style="color:var(--t1);font-weight:700;flex-shrink:0">${isConnect?'وصل شد':'قطع شد'}</span>
-      <span style="color:var(--t2)">${new Date(e.ts).toLocaleString('fa-IR')}</span>
-      ${!isConnect?`<span style="margin-inline-start:auto;display:flex;gap:8px;align-items:center">
+      <span class="dot dg"></span>
+      <span style="color:var(--t2)">${e.start_ts?new Date(e.start_ts).toLocaleString('fa-IR'):''} ${e.start_ts?'←':''} ${new Date(e.ts).toLocaleString('fa-IR')}</span>
+      <span style="margin-inline-start:auto;display:flex;gap:8px;align-items:center">
         <span style="color:var(--t3)"><i class="ti ti-clock" style="font-size:10px"></i> ${fmtDurationJs(e.duration_seconds||0)}</span>
         <span style="font-family:ui-monospace,monospace;color:var(--t1)">${fmtBytesJs(e.bytes_used||0)}</span>
-      </span>`:''}
-    </div>`;
-  }).join('');
+      </span>
+    </div>`).join('');
+}
+async function resetSubLog(){
+  if(!sublogSubId)return;
+  if(!confirm('کل لاگ این گروه پاک بشه؟ این عمل قابل بازگشت نیست.'))return;
+  try{
+    const r=await authF('/api/subs/'+sublogSubId+'/reset-log',{method:'POST'});
+    if(!r.ok)throw new Error();
+    toast('لاگ گروه پاک شد ✓','ok');
+    loadSublogData();
+  }catch(e){toast('خطا در پاک کردن لاگ','err')}
 }
 let esEditingSubId=null;
 async function openEditSub(sub_id){

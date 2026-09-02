@@ -199,6 +199,10 @@ async def require_auth(request: Request):
 # ── Per-sub-group usage/online logger — رویدادمحور (فقط لحظه‌ی وصل/قطع)، نه دوره‌ای ────
 MAX_USAGE_LOG_ENTRIES = 2000   # سقف تعداد رویداد ذخیره‌شده برای هر گروه (تا حجم دیتا زیاد نشه)
 
+# ── Per-sub-group usage/online logger — رویدادمحور (فقط سشن‌های واقعی)، نه دوره‌ای ────
+MAX_USAGE_LOG_ENTRIES = 2000   # سقف تعداد رویداد ذخیره‌شده برای هر گروه (تا حجم دیتا زیاد نشه)
+MIN_LOG_SESSION_SECONDS = 300  # اتصالات کوتاه‌تر از این (پیش‌فرض ۵ دقیقه) اصلاً لاگ نمی‌شن
+
 _conn_started_at: dict[str, float] = {}   # conn_id -> زمان شروع (epoch)
 _conn_bytes_start: dict[str, int] = {}    # conn_id -> used_bytes لینک لحظه‌ی وصل شدن
 
@@ -212,22 +216,23 @@ def _append_sub_usage_event(sub_id: str, entry: dict):
         del log[: len(log) - MAX_USAGE_LOG_ENTRIES]
 
 def log_sub_connect(uuid: str, conn_id: str):
-    """موقع وصل شدن یه کانکشن جدید صدا زده می‌شه؛ فقط زمان دقیق وصل شدن رو ثبت می‌کنه."""
+    """موقع وصل شدن یه کانکشن جدید صدا زده می‌شه. چیزی فوری لاگ نمی‌شه — چون تا وقتی سشن تموم
+    نشه معلوم نیست کوتاه بوده یا نه؛ فقط زمان/حجم شروع رو تو حافظه نگه می‌داریم تا لحظه‌ی قطع شدن."""
     link = LINKS.get(uuid)
     if not link:
         return
     _conn_started_at[conn_id] = time.time()
     _conn_bytes_start[conn_id] = link.get("used_bytes", 0)
-    sub_id = link.get("sub_id")
-    if not sub_id:
-        return
-    _append_sub_usage_event(sub_id, {"ts": datetime.now().isoformat(), "event": "connect"})
 
 def log_sub_disconnect(uuid: str, conn_id: str):
-    """موقع قطع شدن همون کانکشن صدا زده می‌شه؛ مدت‌زمان وصل بودن + حجم مصرفی همون سشن رو ثبت می‌کنه."""
+    """موقع قطع شدن همون کانکشن صدا زده می‌شه. اگه مدت وصل بودن کمتر از MIN_LOG_SESSION_SECONDS
+    باشه (اتصال کوتاه/گذرا)، اصلاً لاگ نمی‌شه؛ فقط سشن‌های واقعی و طولانی ثبت می‌شن."""
     start_ts = _conn_started_at.pop(conn_id, None)
     bytes_start = _conn_bytes_start.pop(conn_id, None)
     if start_ts is None:
+        return
+    duration = max(0, int(time.time() - start_ts))
+    if duration < MIN_LOG_SESSION_SECONDS:
         return
     link = LINKS.get(uuid)
     if not link:
@@ -235,11 +240,12 @@ def log_sub_disconnect(uuid: str, conn_id: str):
     sub_id = link.get("sub_id")
     if not sub_id:
         return
-    duration = max(0, int(time.time() - start_ts))
     bytes_used = max(0, link.get("used_bytes", 0) - (bytes_start or 0))
+    now = datetime.now()
     _append_sub_usage_event(sub_id, {
-        "ts": datetime.now().isoformat(),
-        "event": "disconnect",
+        "ts": now.isoformat(),
+        "start_ts": (now - timedelta(seconds=duration)).isoformat(),
+        "event": "session",
         "duration_seconds": duration,
         "bytes_used": bytes_used,
     })
@@ -917,11 +923,10 @@ async def get_sub_usage(sub_id: str, range: str = "week", _=Depends(require_auth
             entries.append((t, e))
     entries.sort(key=lambda x: x[0])
 
-    # فقط رویدادهای «disconnect» حجم/مدت واقعی یه سشن رو دارن (چون در لحظه‌ی connect هنوز چیزی
-    # مصرف نشده)؛ برای همین دسته‌بندی بر اساس زمان قطع شدن انجام می‌شه.
+    # فقط رویدادهای «session» (سشن‌های کامل و واقعی، کوتاه‌ترها اصلاً ذخیره نشدن) حساب می‌شن.
     buckets: dict[str, dict] = {}
     for t, e in entries:
-        if e.get("event") != "disconnect":
+        if e.get("event") != "session":
             continue
         label = t.strftime(bucket_fmt)
         b = buckets.setdefault(label, {"volume": 0, "online_seconds": 0, "sessions": 0, "order": t})
@@ -941,7 +946,8 @@ async def get_sub_usage(sub_id: str, range: str = "week", _=Depends(require_auth
         "log": [
             {
                 "ts": e["ts"],
-                "event": e.get("event", "disconnect"),
+                "start_ts": e.get("start_ts"),
+                "event": e.get("event", "session"),
                 "duration_seconds": e.get("duration_seconds", 0),
                 "bytes_used": e.get("bytes_used", 0),
             }
@@ -964,6 +970,19 @@ async def reset_sub_usage(sub_id: str, _=Depends(require_auth)):
     asyncio.create_task(save_state())
     log_activity("sub", f"مصرف گروه «{name}» ریست شد ({len(link_ids)} کانفیگ)", "ok")
     return {"ok": True, "reset_count": len(link_ids)}
+
+@app.post("/api/subs/{sub_id}/reset-log")
+async def reset_sub_log(sub_id: str, _=Depends(require_auth)):
+    async with SUBS_LOCK:
+        sub = SUBS.get(sub_id)
+        if not sub:
+            raise HTTPException(status_code=404, detail="sub not found")
+        count = len(sub.get("usage_log", []))
+        sub["usage_log"] = []
+        name = sub.get("name", "")
+    asyncio.create_task(save_state())
+    log_activity("sub", f"لاگ گروه «{name}» پاک شد ({count} رکورد)", "info")
+    return {"ok": True, "cleared": count}
 
 @app.delete("/api/subs/{sub_id}")
 async def delete_sub(sub_id: str, _=Depends(require_auth)):
