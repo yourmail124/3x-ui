@@ -223,6 +223,19 @@ def log_sub_connect(uuid: str, conn_id: str):
         return
     _conn_started_at[conn_id] = time.time()
     _conn_bytes_start[conn_id] = link.get("used_bytes", 0)
+    # اگه این کانفیگ عضو گروهیه که قراره "با اولین اتصال" فعال بشه و هنوز فعال نشده،
+    # همین اولین اتصال واقعی، لحظه‌ی شروع شمارش حجم/انقضای گروه رو مشخص می‌کنه.
+    sub_id = link.get("sub_id")
+    if sub_id:
+        sub = SUBS.get(sub_id)
+        if sub and sub.get("start_on_first_connect") and not sub.get("activated_at"):
+            now = datetime.now()
+            sub["activated_at"] = now.isoformat()
+            pending = sub.get("expire_days_pending")
+            if pending:
+                sub["expires_at"] = (now + timedelta(days=pending)).isoformat()
+            log_activity("sub", f"گروه «{sub.get('name','')}» با اولین اتصال فعال شد", "ok")
+            asyncio.create_task(save_state())
 
 def log_sub_disconnect(uuid: str, conn_id: str):
     """موقع قطع شدن همون کانکشن صدا زده می‌شه. اگه مدت وصل بودن کمتر از MIN_LOG_SESSION_SECONDS
@@ -720,7 +733,12 @@ async def bulk_create_sub(request: Request, _=Depends(require_auth)):
     qu = body.get("quota_unit") or "GB"
     quota_bytes = 0 if qv <= 0 else parse_size_to_bytes(qv, qu)
     exp_days = int(body.get("expires_days") or 0)
-    expires_at = (datetime.now() + timedelta(days=exp_days)).isoformat() if exp_days > 0 else None
+    start_on_first_connect = bool(body.get("start_on_first_connect", False))
+    # اگه "شمارش با اولین اتصال" فعال باشه، انقضا فوراً محاسبه نمی‌شه؛ فقط تعداد روزها ذخیره
+    # می‌شه تا موقع اولین اتصال واقعی به یکی از کانفیگ‌های گروه، از همون لحظه محاسبه بشه.
+    expires_at = None
+    if exp_days > 0 and not start_on_first_connect:
+        expires_at = (datetime.now() + timedelta(days=exp_days)).isoformat()
     items = body.get("links") or []
     if not isinstance(items, list) or not items:
         raise HTTPException(status_code=400, detail="حداقل یک کانفیگ لازم است")
@@ -740,6 +758,9 @@ async def bulk_create_sub(request: Request, _=Depends(require_auth)):
             "quota_bytes": quota_bytes,
             "active": True,
             "expires_at": expires_at,
+            "start_on_first_connect": start_on_first_connect,
+            "expire_days_pending": exp_days if (exp_days > 0 and start_on_first_connect) else None,
+            "activated_at": None,
         }
 
     created = []
@@ -887,9 +908,32 @@ async def update_sub(sub_id: str, request: Request, _=Depends(require_auth)):
             s["quota_bytes"] = 0 if qv <= 0 else parse_size_to_bytes(qv, qu)
         if "active" in body:
             s["active"] = bool(body["active"])
+        if "start_on_first_connect" in body:
+            s["start_on_first_connect"] = bool(body["start_on_first_connect"])
+            # اگه گروه هنوز فعال (اولین اتصال) نشده، با تغییر این تنظیم، انقضای ازپیش‌محاسبه‌شده
+            # هم باید هماهنگ بشه (وگرنه یا زودتر از موعد فعال می‌مونه یا هیچ‌وقت فعال نمی‌شه).
+            if not s.get("activated_at"):
+                if s["start_on_first_connect"]:
+                    pending = s.get("expire_days_pending")
+                    if pending is None and s.get("expires_at"):
+                        try:
+                            days_left = max(0, (datetime.fromisoformat(s["expires_at"]) - datetime.now()).days)
+                            pending = days_left
+                        except Exception:
+                            pending = None
+                    s["expire_days_pending"] = pending
+                    s["expires_at"] = None
+                else:
+                    ed = s.get("expire_days_pending") or 0
+                    s["expires_at"] = (datetime.now() + timedelta(days=ed)).isoformat() if ed > 0 else None
+                    s["expire_days_pending"] = None
         if "expires_days" in body:
             ed = int(body.get("expires_days") or 0)
-            s["expires_at"] = (datetime.now() + timedelta(days=ed)).isoformat() if ed > 0 else None
+            if s.get("start_on_first_connect") and not s.get("activated_at"):
+                s["expire_days_pending"] = ed if ed > 0 else None
+                s["expires_at"] = None
+            else:
+                s["expires_at"] = (datetime.now() + timedelta(days=ed)).isoformat() if ed > 0 else None
     asyncio.create_task(save_state())
     action = "فعال" if body.get("active") is True else ("غیرفعال" if body.get("active") is False else None)
     if action:
@@ -990,14 +1034,18 @@ async def delete_sub(sub_id: str, _=Depends(require_auth)):
         if sub_id not in SUBS:
             raise HTTPException(status_code=404, detail="sub not found")
         name = SUBS[sub_id].get("name", sub_id)
+        link_ids = list(SUBS[sub_id].get("link_ids", []))
         del SUBS[sub_id]
+    # کانفیگ‌های داخل گروه هم حذف می‌شن، نه فقط جدا شدن از گروه —
+    # چون این کانفیگ‌ها مستقل از گروه معنی/کاربردی ندارن.
     async with LINKS_LOCK:
-        for link in LINKS.values():
-            if link.get("sub_id") == sub_id:
-                link["sub_id"] = None
+        for lid in link_ids:
+            LINKS.pop(lid, None)
+        for lid in [k for k, v in LINKS.items() if v.get("sub_id") == sub_id]:
+            LINKS.pop(lid, None)
     asyncio.create_task(save_state())
-    log_activity("sub", f"گروه «{name}» حذف شد", "warn")
-    return {"ok": True, "deleted": sub_id}
+    log_activity("sub", f"گروه «{name}» و {len(link_ids)} کانفیگ داخلش حذف شد", "warn")
+    return {"ok": True, "deleted": sub_id, "deleted_links": len(link_ids)}
 
 @app.post("/api/subs/{sub_id}/links")
 async def assign_link_to_sub(sub_id: str, request: Request, _=Depends(require_auth)):
@@ -1203,6 +1251,7 @@ async def api_backup(_=Depends(require_auth)):
             "version": 1,
             "links": dict(LINKS),
             "subs": dict(SUBS),
+            "settings": dict(SETTINGS),
             "password_hash": AUTH["password_hash"],
             "saved_at": datetime.now().isoformat(),
         }
@@ -1236,6 +1285,10 @@ async def api_restore(request: Request, token=Depends(require_auth)):
     async with SUBS_LOCK:
         SUBS.clear()
         SUBS.update(new_subs)
+
+    new_settings = data.get("settings")
+    if isinstance(new_settings, dict):
+        SETTINGS.update(new_settings)
 
     new_pw_hash = data.get("password_hash")
     if new_pw_hash and new_pw_hash != AUTH["password_hash"]:
@@ -1471,13 +1524,17 @@ async def remove_sub_group(sub_id: str) -> str | None:
         if sub_id not in SUBS:
             return None
         name = SUBS[sub_id].get("name", sub_id)
+        link_ids = list(SUBS[sub_id].get("link_ids", []))
         del SUBS[sub_id]
+    # کانفیگ‌های داخل گروه هم حذف می‌شن (نه فقط جدا شدن از گروه) — این تابع رو هم پنل وب
+    # و هم ربات تلگرام صدا می‌زنن، پس رفتار حذف باید یکسان و کامل باشه.
     async with LINKS_LOCK:
-        for link in LINKS.values():
-            if link.get("sub_id") == sub_id:
-                link["sub_id"] = None
+        for lid in link_ids:
+            LINKS.pop(lid, None)
+        for lid in [k for k, v in LINKS.items() if v.get("sub_id") == sub_id]:
+            LINKS.pop(lid, None)
     asyncio.create_task(save_state())
-    log_activity("sub", f"گروه «{name}» حذف شد", "warn")
+    log_activity("sub", f"گروه «{name}» و {len(link_ids)} کانفیگ داخلش حذف شد", "warn")
     return name
 
 # ── Link Management ───────────────────────────────────────────────────────────
