@@ -32,25 +32,6 @@ from speed_limit import throttle
 
 RELAY_BUF = 256 * 1024   # 256 KB buffer
 
-# ── جلوگیری از اسپم لاگ فعالیت به‌خاطر قطع/وصل مکرر یک کلاینت ────────────────
-# موبایل‌ها/شبکه‌های ناپایدار مدام WS رو قطع و وصل می‌کنن؛ بدون این محدودیت هر بار
-# یه ردیف جدید "اتصال جدید از ..." تو لاگ فعالیت ثبت می‌شه که فقط شلوغش می‌کنه.
-CONN_LOG_COOLDOWN = 180  # ثانیه — برای هر (uuid, ip) حداکثر هر ۳ دقیقه یک بار لاگ می‌شه
-_last_conn_log: dict[tuple, float] = {}
-
-def _should_log_connection(uuid: str, ip: str) -> bool:
-    key = (uuid, ip)
-    now = asyncio.get_event_loop().time()
-    last = _last_conn_log.get(key)
-    if last is not None and (now - last) < CONN_LOG_COOLDOWN:
-        return False
-    _last_conn_log[key] = now
-    if len(_last_conn_log) > 5000:  # جلوگیری از رشد بی‌نهایت حافظه در سرورهای پرترافیک
-        stale = [k for k, v in _last_conn_log.items() if (now - v) > CONN_LOG_COOLDOWN]
-        for k in stale:
-            _last_conn_log.pop(k, None)
-    return True
-
 def _ws_client_ip(ws: WebSocket) -> str:
     fwd = ws.headers.get("x-forwarded-for")
     if fwd:
@@ -152,8 +133,7 @@ async def websocket_tunnel(ws: WebSocket, uuid: str):
 
     if not is_ip_allowed(link, uuid, ip):
         logger.warning(f"🚫 WS rejected uuid={uuid[:8]}… ip={ip} (ip limit reached)")
-        if _should_log_connection(f"{uuid}:rejected", ip):
-            log_activity("connection", f"اتصال {ip} به کانفیگ «{link.get('label','?')}» رد شد (محدودیت تعداد آی‌پی)", "warn")
+        log_activity("connection", f"اتصال {ip} به کانفیگ «{link.get('label','?')}» رد شد (محدودیت تعداد آی‌پی)", "warn")
         await ws.close(code=1008, reason="ip limit reached")
         return
 
@@ -167,8 +147,7 @@ async def websocket_tunnel(ws: WebSocket, uuid: str):
     }
     log_sub_connect(uuid, conn_id)
     logger.info(f"✅ WS [{conn_id}] uuid={uuid[:8]}… ip={ip} total={len(connections)}")
-    if _should_log_connection(uuid, ip):
-        log_activity("connection", f"اتصال جدید از {ip} (کانفیگ {link.get('label','?')})", "info")
+    log_activity("connection", f"اتصال جدید از {ip} (کانفیگ {link.get('label','?')})", "info")
     writer = None
 
     try:
@@ -234,6 +213,7 @@ async def websocket_tunnel(ws: WebSocket, uuid: str):
                 await writer.wait_closed()
             except Exception:
                 pass
+        conn_bytes = connections.get(conn_id, {}).get("bytes", 0)
         connections.pop(conn_id, None)
-        log_sub_disconnect(uuid, conn_id)
+        log_sub_disconnect(uuid, conn_id, conn_bytes)
         logger.info(f"🔌 WS closed [{conn_id}] total={len(connections)}")

@@ -258,8 +258,9 @@ async def _teardown(session_id: str):
             await writer.wait_closed()
         except Exception:
             pass
+    conn_bytes = connections.get(sess.get("conn_id"), {}).get("bytes", 0)
     connections.pop(sess.get("conn_id"), None)
-    log_sub_disconnect(sess.get("uuid"), sess.get("conn_id"))
+    log_sub_disconnect(sess.get("uuid"), sess.get("conn_id"), conn_bytes)
     dq = sess.get("down_q")
     if dq:
         try:
