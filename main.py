@@ -1199,6 +1199,42 @@ async def delete_clean_ip(ip: str, _=Depends(require_auth)):
     log_activity("settings", f"آی‌پی تمیز «{ip}» حذف شد", "info")
     return {"ok": True, "clean_ips": SETTINGS["clean_ips"]}
 
+@app.patch("/api/settings/clean-ips/{ip}")
+async def update_clean_ip(ip: str, request: Request, _=Depends(require_auth)):
+    """ویرایش یک آی‌پی تمیز (آدرس و/یا برچسب). برخلاف حذف+افزودن دوباره، این کار خودِ آدرس
+    رو تو کانفیگ‌هایی هم که از قبل با این آی‌پی ساخته شده بودن به‌روز می‌کنه — یعنی برای اعمال
+    آی‌پی جدید روی ساب‌های ساخته‌شده لازم نیست ساب جدیدی بسازی."""
+    body = await request.json()
+    new_ip = str(body.get("ip") or "").strip()
+    new_label = str(body.get("label") or "").strip()[:40]
+    if not new_ip:
+        raise HTTPException(status_code=400, detail="آی‌پی نمی‌تواند خالی باشد")
+    ip_re = re.compile(r"^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-fA-F:]+$")
+    if not ip_re.match(new_ip):
+        raise HTTPException(status_code=400, detail="فرمت آی‌پی نامعتبر است")
+    async with SETTINGS_LOCK:
+        ips = SETTINGS.setdefault("clean_ips", [])
+        entry = next((x for x in ips if x["ip"] == ip), None)
+        if not entry:
+            raise HTTPException(status_code=404, detail="آی‌پی پیدا نشد")
+        if new_ip != ip and any(x["ip"] == new_ip for x in ips):
+            raise HTTPException(status_code=400, detail="این آی‌پی قبلاً اضافه شده")
+        entry["ip"] = new_ip
+        entry["label"] = new_label or new_ip
+
+    updated_links = 0
+    if new_ip != ip:
+        async with LINKS_LOCK:
+            for link in LINKS.values():
+                if link.get("route") == "clean_ip" and link.get("clean_ip") == ip:
+                    link["clean_ip"] = new_ip
+                    updated_links += 1
+
+    await save_state()
+    extra = f" و {updated_links} کانفیگ موجود هم به‌روز شد" if updated_links else ""
+    log_activity("settings", f"آی‌پی تمیز «{ip}» ویرایش شد{extra}", "info")
+    return {"ok": True, "clean_ips": SETTINGS["clean_ips"], "updated_links": updated_links}
+
 @app.patch("/api/settings")
 async def api_update_settings(request: Request, _=Depends(require_auth)):
     body = await request.json()
@@ -1578,6 +1614,7 @@ async def create_link(request: Request, _=Depends(require_auth)):
         ip_limit=ip_limit,
         speed_limit_bytes=speed_limit_bytes,
         route=body.get("route") or "domain",
+        clean_ip=body.get("clean_ip") or "",
     )
 
     # اگه یک یا چند آی‌پی تمیز هم انتخاب شده باشه، به ازای هرکدوم یه کانفیگ مستقل دیگه (با همون
@@ -1678,9 +1715,14 @@ async def update_link(uid: str, request: Request, _=Depends(require_auth)):
             except (TypeError, ValueError):
                 p = DEFAULT_PORT
             link["port"] = p if (MIN_PORT <= p <= MAX_PORT) else DEFAULT_PORT
+        if "protocol" in body:
+            proto = str(body.get("protocol") or DEFAULT_PROTOCOL)
+            link["protocol"] = proto if proto in PROTOCOLS else DEFAULT_PROTOCOL
         if "route" in body:
             rt = str(body.get("route") or "domain")
-            link["route"] = rt if rt in ("domain", "proxy") else "domain"
+            link["route"] = rt if rt in ("domain", "proxy", "clean_ip", "threexui") else "domain"
+        if "clean_ip" in body:
+            link["clean_ip"] = str(body.get("clean_ip") or "").strip()[:64]
         if "ip_limit" in body:
             try:
                 il = int(body.get("ip_limit") or 0)
@@ -1693,7 +1735,7 @@ async def update_link(uid: str, request: Request, _=Depends(require_auth)):
             link["speed_limit_bytes"] = 0 if sv <= 0 else parse_speed_to_bytes(sv, su)
             from speed_limit import reset_bucket
             reset_bucket(uid)
-        if any(k in body for k in ("label", "note", "limit_value", "expires_days", "fingerprint", "alpn", "port", "ip_limit", "speed_limit_value")):
+        if any(k in body for k in ("label", "note", "limit_value", "expires_days", "protocol", "route", "clean_ip", "fingerprint", "alpn", "port", "ip_limit", "speed_limit_value")):
             log_activity("link", f"کانفیگ «{link['label']}» ویرایش شد", "info")
         new_sub = body.get("sub_id", "UNCHANGED")
         if new_sub != "UNCHANGED":
