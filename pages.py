@@ -471,6 +471,7 @@ a{color:inherit;text-decoration:none}
 .sub-card-icon{width:46px;height:46px;border-radius:14px;background:linear-gradient(135deg,var(--purple),#6D48D6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;flex-shrink:0;box-shadow:0 6px 16px rgba(139,92,246,.35)}
 .sub-card-titles{flex:1;min-width:0}
 .sub-card-name-v2{font-size:15.5px;font-weight:800;color:var(--t1);letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sub-card-badges-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:6px}
 .sub-card-desc-v2{font-size:11px;color:var(--t3);margin-top:3px;line-height:1.6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .sub-card-lock-badge{flex-shrink:0;width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px}
 .sub-card-lock-badge.locked{background:var(--amber-bg);color:var(--amber-t)}
@@ -2050,11 +2051,12 @@ function renderSubsGrid(subs){
         <div class="sub-card-head-v2">
           <div class="sub-card-icon"><i class="ti ti-folder"></i></div>
           <div class="sub-card-titles">
-            <div class="sub-card-name-v2">${esc(s.name)}
-              <span class="conn-live-badge ${s.is_online?'is-live':''}" style="margin-inline-start:8px" title="${s.is_online?'همین الان کسی به این گروه متصل است':'در حال حاضر کسی متصل نیست'}">
+            <div class="sub-card-name-v2">${esc(s.name)}</div>
+            <div class="sub-card-badges-row">
+              <span class="conn-live-badge ${s.is_online?'is-live':''}" title="${s.is_online?'همین الان کسی به این گروه متصل است':'در حال حاضر کسی متصل نیست'}">
                 <span class="dot ${s.is_online?'dg pulse':'dr'}"></span>${s.is_online?'متصل':'آفلاین'}
               </span>
-              ${s.active===false?'<span class="conn-live-badge" style="margin-inline-start:6px;background:var(--card-b);color:var(--t3)"><i class="ti ti-player-pause" style="font-size:10px"></i> غیرفعال</span>':(s.is_expired?'<span class="conn-live-badge" style="margin-inline-start:6px;background:var(--amber-bg);color:var(--amber-t)"><i class="ti ti-calendar-x" style="font-size:10px"></i> منقضی</span>':(s.pending_activation?'<span class="conn-live-badge" style="margin-inline-start:6px;background:var(--accent-d);color:var(--accent)"><i class="ti ti-hourglass-empty" style="font-size:10px"></i> منتظر اولین اتصال</span>':''))}
+              ${s.active===false?'<span class="conn-live-badge" style="background:var(--card-b);color:var(--t3)"><i class="ti ti-player-pause" style="font-size:10px"></i> غیرفعال</span>':(s.is_expired?'<span class="conn-live-badge" style="background:var(--amber-bg);color:var(--amber-t)"><i class="ti ti-calendar-x" style="font-size:10px"></i> منقضی</span>':(s.pending_activation?'<span class="conn-live-badge" style="background:var(--accent-d);color:var(--accent)"><i class="ti ti-hourglass-empty" style="font-size:10px"></i> منتظر اولین اتصال</span>':''))}
             </div>
             ${s.desc?`<div class="sub-card-desc-v2">${esc(s.desc)}</div>`:'<div class="sub-card-desc-v2" style="opacity:.5">بدون توضیحات</div>'}
           </div>
